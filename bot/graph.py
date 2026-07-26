@@ -27,8 +27,10 @@ async def postgres_checkpointer():
     """Production checkpointer, opened lazily against settings.database_url.
 
     Not used by build_graph() directly so that build_graph() stays DB-free
-    and unit-testable. Callers that need real persistence (e.g. the bot's
-    startup code) should do:
+    and unit-testable. Runs .setup() on entry — required by langgraph to
+    create the checkpoints/checkpoint_migrations tables on first use, and
+    idempotent on subsequent calls. Callers that need real persistence
+    (e.g. the bot's startup code) should do:
 
         async with postgres_checkpointer() as checkpointer:
             graph = build_graph(checkpointer=checkpointer)
@@ -36,4 +38,5 @@ async def postgres_checkpointer():
     """
     conn_string = settings.database_url.replace("+psycopg", "").replace("+asyncpg", "")
     async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
+        await checkpointer.setup()
         yield checkpointer
