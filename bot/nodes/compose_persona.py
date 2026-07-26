@@ -29,8 +29,12 @@ _VOICE_TAG_RE = re.compile(r"^\W*\[voice\]\s*", re.IGNORECASE)
 # the model still leaks an obvious tool-tell despite the persona prompt's
 # SILENCE_RULES. Deliberately narrow to avoid false positives on legitimate
 # prose.
+# \b after each alternative's final word prevents matching into a longer
+# word (e.g. "as an ai" must not match the start of "air"/"aid"; "search"
+# must not match the start of "searches"; "tool" must not match the start
+# of "toolkit") — the phrase must be a complete word/clause, not a prefix.
 _JARGON_RE = re.compile(
-    r"^(?:as an ai|i (?:just )?looked that up|according to my (?:search|tool)|let me search)"
+    r"^(?:as an ai\b|i (?:just )?looked that up\b|according to my (?:search|tool)\b|let me search\b)"
     r"[,:]?\s*",
     re.IGNORECASE,
 )

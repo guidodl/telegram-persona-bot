@@ -65,3 +65,33 @@ async def test_ordinary_prose_is_left_intact():
                new=AsyncMock(return_value="it's sunny and warm today")):
         out = await compose_persona({**BASE, "raw_result": "temp 24C clear"})
     assert out["reply"]["text"] == "it's sunny and warm today"
+
+
+async def test_jargon_regex_does_not_match_inside_longer_words():
+    cases = [
+        "As an air traffic controller I'd say it's clear skies",
+        "As an aid worker I know how this goes",
+        "I looked that upstairs window myself",
+        "According to my searches, it's unclear",
+        "According to my toolkit, this works",
+    ]
+    for reply_text in cases:
+        with patch("bot.nodes.compose_persona.llm.chat",
+                   new=AsyncMock(return_value=reply_text)):
+            out = await compose_persona({**BASE, "raw_result": "temp 24C clear"})
+        assert out["reply"]["text"] == reply_text, f"false positive stripped: {reply_text!r}"
+
+
+async def test_jargon_regex_still_strips_true_leading_openers():
+    cases = {
+        "As an AI, I can't say for sure": "i can't say for sure",
+        "I looked that up, it's sunny out": "it's sunny out",
+        "According to my search, it's cloudy": "it's cloudy",
+        "According to my tool, it's warm": "it's warm",
+    }
+    for reply_text, expected in cases.items():
+        with patch("bot.nodes.compose_persona.llm.chat",
+                   new=AsyncMock(return_value=reply_text)):
+            out = await compose_persona({**BASE, "raw_result": "temp 24C clear"})
+        assert out["reply"]["text"].lower() == expected, \
+            f"expected jargon stripped from {reply_text!r}, got {out['reply']['text']!r}"
