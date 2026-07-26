@@ -4,12 +4,67 @@ from bot import ingress
 
 async def test_persist_memory_launched_after_send():
     with patch("bot.ingress.persist_memory", new=AsyncMock()) as pm, \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
          patch("bot.ingress._graph") as g:
         g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
         update, ctx = ingress._fake_text_update("hello", chat_id=5)  # test helper
         await ingress.on_message(update, ctx)
         # allow the created task to schedule
     pm.assert_awaited()  # persist ran, off the reply path
+
+
+async def test_recent_turns_fetched_and_passed_to_persist_memory():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()) as pm, \
+         patch("bot.ingress.memory.recent_turns",
+               new=AsyncMock(return_value=[{"role": "user", "content": "earlier"}])) as rt, \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    rt.assert_awaited_once_with(5, 10)
+    pm.assert_awaited_once_with(5, "hello", "hi", [{"role": "user", "content": "earlier"}])
+
+
+async def test_log_turn_called_for_user_and_assistant_after_reply():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()) as lt, \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi there", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    lt.assert_any_await(5, "user", "hello")
+    lt.assert_any_await(5, "assistant", "hi there")
+    assert lt.await_count == 2
+
+
+async def test_post_send_memory_work_happens_after_reply_and_never_raises():
+    call_order = []
+
+    async def recording_reply_text(*args, **kwargs):
+        call_order.append("reply_text")
+
+    async def recording_recent_turns(*args, **kwargs):
+        call_order.append("recent_turns")
+        raise RuntimeError("db down")
+
+    async def recording_log_turn(*args, **kwargs):
+        call_order.append("log_turn")
+        raise RuntimeError("db down")
+
+    with patch("bot.ingress.persist_memory", new=AsyncMock(side_effect=RuntimeError("db down"))), \
+         patch("bot.ingress.memory.recent_turns", new=recording_recent_turns), \
+         patch("bot.ingress.memory.log_turn", new=recording_log_turn), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        update.effective_message.reply_text = AsyncMock(side_effect=recording_reply_text)
+        await ingress.on_message(update, ctx)  # must not raise despite the memory-side failures
+    assert call_order[0] == "reply_text"
+    assert "recent_turns" in call_order
+    assert call_order.index("reply_text") < call_order.index("recent_turns")
 
 
 async def test_group_chat_ignored():

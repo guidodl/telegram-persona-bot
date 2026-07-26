@@ -14,7 +14,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot import media, tts
+from bot import media, memory, tts
 from bot.config import settings
 from bot.graph import build_graph, postgres_checkpointer
 from bot.memory import forget_user
@@ -81,6 +81,29 @@ async def _keep_typing(chat) -> None:
             await asyncio.sleep(_TYPING_REFIRE_S)
     except asyncio.CancelledError:
         pass
+
+
+async def _post_send_memory_work(chat_id: int, user_text: str, reply_text: str) -> None:
+    """Fire-and-forget, off the reply critical path — mirrors persist_memory's
+    own swallow-everything contract. Fetches history and launches extraction
+    BEFORE logging the current turn, so this turn never pollutes the context
+    used to extract facts from itself."""
+    recent = []
+    try:
+        recent = await memory.recent_turns(chat_id, 10)
+    except Exception:
+        logger.exception("recent_turns fetch failed for chat_id=%s", chat_id)
+
+    try:
+        await persist_memory(chat_id, user_text, reply_text, recent)
+    except Exception:
+        logger.exception("persist_memory failed for chat_id=%s", chat_id)
+
+    try:
+        await memory.log_turn(chat_id, "user", user_text)
+        await memory.log_turn(chat_id, "assistant", reply_text)
+    except Exception:
+        logger.exception("log_turn failed for chat_id=%s", chat_id)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -153,7 +176,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         except Exception:
             logger.exception("photo send failed for chat_id=%s", chat.id)
 
-    asyncio.create_task(persist_memory(chat.id, user_text, text, []))
+    asyncio.create_task(_post_send_memory_work(chat.id, user_text, text))
     await asyncio.sleep(0)  # yield once so the background task gets scheduled
 
 
