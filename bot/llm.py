@@ -15,7 +15,8 @@ async def _post(url: str, headers: dict, payload: dict) -> dict:
                 return r.json()
             except httpx.HTTPError as e:
                 last = e
-                await asyncio.sleep(0.5 * (2 ** attempt))
+                if attempt < 2:
+                    await asyncio.sleep(0.5 * (2 ** attempt))
     raise last
 
 
