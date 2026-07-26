@@ -17,9 +17,36 @@ VOICE_INSTRUCTION = (
 
 _MARKDOWN_RE = re.compile(r"[*_`#]+")
 
+# Matches the [VOICE] tag regardless of leading punctuation/markdown wrapper
+# left over from the model's formatting (e.g. "**[VOICE]**", "- [VOICE]").
+# Runs AFTER markdown stripping so wrapper characters are already gone; the
+# leftover \W* guards against stray punctuation/whitespace.
+_VOICE_TAG_RE = re.compile(r"^\W*\[voice\]\s*", re.IGNORECASE)
+
+# Defense-in-depth only: the real silence guarantees are the tool-free speak
+# call (no `tools` kwarg ever reaches the model here) and the Task-13
+# send-guard. This is a conservative, leading-position-only backstop in case
+# the model still leaks an obvious tool-tell despite the persona prompt's
+# SILENCE_RULES. Deliberately narrow to avoid false positives on legitimate
+# prose.
+_JARGON_RE = re.compile(
+    r"^(?:as an ai|i (?:just )?looked that up|according to my (?:search|tool)|let me search)"
+    r"[,:]?\s*",
+    re.IGNORECASE,
+)
+
 
 def _strip_markdown(text: str) -> str:
     return _MARKDOWN_RE.sub("", text).strip()
+
+
+def _extract_voice_tag(text: str) -> tuple[str, bool]:
+    new_text, matched = _VOICE_TAG_RE.subn("", text, count=1)
+    return new_text, matched > 0
+
+
+def _strip_jargon(text: str) -> str:
+    return _JARGON_RE.sub("", text, count=1)
 
 
 async def compose_persona(state) -> dict:
@@ -40,12 +67,9 @@ async def compose_persona(state) -> dict:
 
     text = await llm.chat(messages)
 
-    voice = False
-    if text.strip().startswith("[VOICE]"):
-        voice = True
-        text = text.strip()[len("[VOICE]"):]
-
     text = _strip_markdown(text)
+    text, voice = _extract_voice_tag(text)
+    text = _strip_jargon(text).strip()
 
     image_url = None if (agent_error or not raw_result) else state.get("found_image_url")
 
