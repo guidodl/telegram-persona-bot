@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     model_chat: str = "deepseek/deepseek-v4-flash"
     model_vision: str = "google/gemini-2.5-flash"
     model_embed: str = "openai/text-embedding-3-small"
+    tts_model: str = "gpt-4o-mini-tts"
     embed_dim: int = 1536
     embed_backend: str = "openrouter"  # or "openai"
     pacing_enabled: bool = True
