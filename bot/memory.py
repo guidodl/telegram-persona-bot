@@ -1,11 +1,13 @@
 import asyncio
-import inspect
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 
 from bot import llm
 from bot.config import settings
 
+# Fixed for process lifetime by design in production; settings.database_url
+# never changes after startup. _reset_engine_for_tests() exists only so
+# integration tests can rebind to a different container/URL.
 _engine: AsyncEngine | None = None
 _engine_lock = asyncio.Lock()
 
@@ -27,24 +29,30 @@ async def _get_engine() -> AsyncEngine:
     return _engine
 
 
+async def _reset_engine_for_tests() -> None:
+    global _engine
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
+
+
 async def _embed(texts: list[str]) -> list[list[float]]:
-    result = await llm.embed(texts)
-    if inspect.isawaitable(result):
-        result = await result
-    return result
+    return await llm.embed(texts)
 
 
 async def get_profile(user_id: int) -> dict:
     engine = await _get_engine()
     async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO users (telegram_user_id) VALUES (:uid) "
+                "ON CONFLICT (telegram_user_id) DO NOTHING"
+            ),
+            {"uid": user_id},
+        )
         row = (await conn.execute(
             text("SELECT * FROM users WHERE telegram_user_id = :uid"), {"uid": user_id}
         )).mappings().first()
-        if row is None:
-            row = (await conn.execute(
-                text("INSERT INTO users (telegram_user_id) VALUES (:uid) RETURNING *"),
-                {"uid": user_id},
-            )).mappings().first()
         return dict(row)
 
 
