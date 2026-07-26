@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-persona-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telegram-persona-bot
+  template:
+    metadata:
+      labels:
+        app: telegram-persona-bot
+    spec:
+      containers:
+        - name: bot
+          image: telegram-persona-bot:latest
+          envFrom:
+            - secretRef:
+                name: telegram-persona-bot-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

@@ -1,4 +1,7 @@
-import pathlib, psycopg
+import asyncio
+import pathlib
+
+import psycopg
 
 MIGRATIONS = pathlib.Path(__file__).parent.parent / "migrations"
 
@@ -13,3 +16,9 @@ async def apply_migrations(database_url: str) -> None:
                 continue
             conn.execute(path.read_text())
             conn.execute("INSERT INTO schema_migrations(filename) VALUES (%s)", (path.name,))
+
+
+if __name__ == "__main__":
+    from bot.config import settings
+
+    asyncio.run(apply_migrations(settings.database_url))
