@@ -34,8 +34,10 @@ def _parse_extraction(raw: str) -> tuple[list[str], str | None]:
 
 async def persist_memory(user_id: int, user_text: str, reply_text: str, recent: list[dict]) -> None:
     try:
+        history = [{"role": r["role"], "content": r["content"]} for r in reversed(recent)]
         messages = [
             {"role": "system", "content": EXTRACTION_PROMPT},
+            *history,
             {"role": "user", "content": f"User: {user_text}\nAssistant: {reply_text}"},
         ]
         raw = await llm.chat(messages)
