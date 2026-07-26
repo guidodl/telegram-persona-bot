@@ -1,0 +1,7 @@
+[project]
+name = "telegram-persona-bot"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "langstage-hermes[openai]==0.4.25",
+]
