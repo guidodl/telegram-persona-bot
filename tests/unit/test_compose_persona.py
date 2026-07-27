@@ -59,6 +59,15 @@ async def test_no_voice_tag_leaves_voice_false_and_text_unchanged():
     assert out["reply"]["text"] == "just some regular reply"
 
 
+async def test_empty_voice_tag_recomposes_as_plain_text():
+    replies = iter(["[VOICE]", "hey, good to hear from you"])
+    with patch("bot.nodes.compose_persona.llm.chat",
+               new=AsyncMock(side_effect=lambda *a, **k: next(replies))):
+        out = await compose_persona({**BASE, "raw_result": "temp 24C clear"})
+    assert out["reply"]["voice"] is False
+    assert out["reply"]["text"] == "hey, good to hear from you"
+
+
 async def test_leading_tool_jargon_is_stripped():
     with patch("bot.nodes.compose_persona.llm.chat",
                new=AsyncMock(return_value="I looked that up, it's sunny out!")):

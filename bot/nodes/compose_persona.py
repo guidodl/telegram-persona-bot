@@ -75,6 +75,14 @@ async def compose_persona(state) -> dict:
     text, voice = _extract_voice_tag(text)
     text = _strip_jargon(text).strip()
 
+    # A [VOICE] tag with no message after it strips down to empty text, which
+    # the send-guard rejects — the user gets the tongue-tied fallback. Recompose
+    # once as plain text (drop the voice offer) so a real reply still lands.
+    if voice and not text:
+        messages[-1]["content"] = facts_message
+        text = _strip_jargon(_strip_markdown(await llm.chat(messages) or "")).strip()
+        voice = False
+
     image_url = None if (agent_error or not raw_result) else state.get("found_image_url")
 
     return {"reply": {"text": text, "voice": voice, "image_url": image_url}}

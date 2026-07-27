@@ -81,20 +81,21 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 | `ALLOWED_USERS` | `""` | Comma-separated Telegram user IDs allowed to DM the bot; empty = everyone |
 | `PERSONA_FILE` | `""` | Path to a persona definition file (e.g. `bot/personas/erminio.md`); empty = generic companion persona |
 | `OPENROUTER_API_KEY` | `""` | Chat/vision/embedding calls via OpenRouter |
-| `OPENAI_API_KEY` | `""` | OpenAI TTS (`tts.synth`) and optional OpenAI embeddings backend |
+| `OPENAI_API_KEY` | `""` | Optional OpenAI embeddings backend (`EMBED_BACKEND=openai`); not used for TTS |
 | `TAVILY_API_KEY` | `""` | `web_search` tool |
 | `BRAVE_API_KEY` | `""` | `image_search` tool |
 | `DATABASE_URL` | `""` | Postgres connection string, e.g. `postgresql+psycopg://bot:bot@db:5432/bot` |
 | `MODEL_CHAT` | `deepseek/deepseek-v4-flash` | Chat + tool-loop model |
 | `MODEL_VISION` | `google/gemini-2.5-flash` | `vision_analyze` model |
 | `MODEL_EMBED` | `openai/text-embedding-3-small` | Embedding model (OpenRouter backend) |
-| `TTS_MODEL` | `gpt-4o-mini-tts` | OpenAI text-to-speech model for voice replies |
+| `TTS_MODEL` | `x-ai/grok-voice-tts-1.0` | OpenRouter speech model for voice replies (list via `GET /models?output_modalities=speech`) |
+| `TTS_VOICE` | `leo` | Voice ID; must be in the model's `supported_voices`. Voices are provider-namespaced |
 | `EMBED_DIM` | `1536` | Vector dimension (must match the `memories.embedding` column) |
 | `EMBED_BACKEND` | `openrouter` | `openrouter` or `openai` — which provider serves embeddings |
 | `PACING_ENABLED` | `true` | Adds a human-like delay between multi-chunk reply sends |
 | `PACING_DELAY_MIN_S` | `0.5` | Minimum pacing delay (seconds) |
 | `PACING_DELAY_MAX_S` | `2.0` | Maximum pacing delay (seconds) |
-| `AGENT_MAX_ITERATIONS` | `90` | Upper bound on the tool-calling loop in `bot/nodes/agent.py` |
+| `AGENT_MAX_ITERATIONS` | `6` | Upper bound on the tool-calling loop in `bot/nodes/agent.py`; each iteration is a serial LLM round-trip, so this caps worst-case reply latency |
 
 ## Local run
 
@@ -218,5 +219,5 @@ Not implemented in this version:
 
 - An external-actions tool (e.g. calendar, reminders, third-party APIs
   beyond web/image search)
-- Voice-in / speech-to-text (only voice-*out* via OpenAI TTS is supported)
+- Voice-in / speech-to-text (only voice-*out* via OpenRouter TTS is supported, sent as an mp3 audio file)
 - Image generation (only image *search*, via Brave, is supported)

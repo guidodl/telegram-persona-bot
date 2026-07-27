@@ -214,18 +214,24 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.warning("send_guard rejected reply text for chat_id=%s", chat.id)
         text = SEND_GUARD_FALLBACK
 
-    chunks = _chunk_reply(text)
-    for i, chunk in enumerate(chunks):
-        if i > 0:
-            await _pacing_delay()
-        await message.reply_text(chunk)
-
+    # A voice reply is sent as audio only — no text transcript alongside it.
+    # Text is still sent if voice wasn't requested, or as a fallback when
+    # synthesis fails so the user is never left with nothing.
+    sent_voice = False
     if reply.get("voice"):
         try:
             voice_bytes = await tts.synth(text)
-            await context.bot.send_voice(chat_id=chat.id, voice=media.to_voice(voice_bytes))
+            await context.bot.send_audio(chat_id=chat.id, audio=media.to_audio(voice_bytes))
+            sent_voice = True
         except Exception:
             logger.exception("voice send failed for chat_id=%s", chat.id)
+
+    if not sent_voice:
+        chunks = _chunk_reply(text)
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                await _pacing_delay()
+            await message.reply_text(chunk)
 
     image_url = reply.get("image_url")
     if image_url:
@@ -254,7 +260,7 @@ def _fake_text_update(text: str, chat_id: int = 1):
     context = MagicMock()
     context.bot.id = 999
     context.bot.username = "personabot"
-    context.bot.send_voice = AsyncMock()
+    context.bot.send_audio = AsyncMock()
     context.bot.send_photo = AsyncMock()
 
     return update, context

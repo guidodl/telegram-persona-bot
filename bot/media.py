@@ -8,8 +8,8 @@ async def photo_to_bytes(photo_sizes) -> bytes:
     return bytes(await file_obj.download_as_bytearray())
 
 
-def to_voice(audio_bytes: bytes) -> InputFile:
-    return InputFile(BytesIO(audio_bytes), filename="voice.ogg")
+def to_audio(audio_bytes: bytes) -> InputFile:
+    return InputFile(BytesIO(audio_bytes), filename="voice.mp3")
 
 
 def to_photo(image_bytes: bytes) -> InputFile:

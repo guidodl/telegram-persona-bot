@@ -212,16 +212,29 @@ async def test_graph_error_sends_fallback_not_traceback():
     update.effective_message.reply_text.assert_awaited_once_with(ingress.SEND_GUARD_FALLBACK)
 
 
-async def test_voice_reply_sends_voice():
+async def test_voice_reply_sends_audio_only_no_text():
     with patch("bot.ingress.persist_memory", new=AsyncMock()), \
          patch("bot.ingress._graph") as g, \
          patch("bot.ingress.tts.synth", new=AsyncMock(return_value=b"audio")), \
-         patch("bot.ingress.media.to_voice", return_value="VOICE_FILE"):
+         patch("bot.ingress.media.to_audio", return_value="AUDIO_FILE"):
         g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi there",
                                                        "voice": True, "image_url": None}})
         update, ctx = ingress._fake_text_update("hello", chat_id=5)
         await ingress.on_message(update, ctx)
-    ctx.bot.send_voice.assert_awaited_once_with(chat_id=5, voice="VOICE_FILE")
+    ctx.bot.send_audio.assert_awaited_once_with(chat_id=5, audio="AUDIO_FILE")
+    update.effective_message.reply_text.assert_not_awaited()
+
+
+async def test_voice_reply_falls_back_to_text_when_synth_fails():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g, \
+         patch("bot.ingress.tts.synth", new=AsyncMock(side_effect=RuntimeError("tts down"))):
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi there",
+                                                       "voice": True, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    ctx.bot.send_audio.assert_not_awaited()
+    update.effective_message.reply_text.assert_awaited_once_with("hi there")
 
 
 async def test_image_url_reply_sends_photo():
