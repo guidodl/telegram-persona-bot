@@ -85,7 +85,8 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 | `TAVILY_API_KEY` | `""` | `web_search` tool |
 | `BRAVE_API_KEY` | `""` | `image_search` tool |
 | `DATABASE_URL` | `""` | Postgres connection string, e.g. `postgresql+psycopg://bot:bot@db:5432/bot` |
-| `MODEL_CHAT` | `deepseek/deepseek-v4-flash` | Chat + tool-loop model |
+| `MODEL_CHAT` | `deepseek/deepseek-v4-flash` | Persona reply model (`compose_persona`) |
+| `MODEL_AGENT` | `""` | Tool-loop model deciding whether to call tools (e.g. `image_search`); empty falls back to `MODEL_CHAT` |
 | `MODEL_VISION` | `google/gemini-2.5-flash` | `vision_analyze` model |
 | `MODEL_EMBED` | `openai/text-embedding-3-small` | Embedding model (OpenRouter backend) |
 | `TTS_MODEL` | `x-ai/grok-voice-tts-1.0` | OpenRouter speech model for voice replies (list via `GET /models?output_modalities=speech`) |

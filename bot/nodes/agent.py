@@ -20,7 +20,8 @@ async def agent_node(state) -> dict:
             messages.insert(0, {"role": "system", "content": briefing})
 
         for _ in range(settings.agent_max_iterations):
-            msg = await llm.chat_with_tools(messages, TOOL_SPECS)
+            msg = await llm.chat_with_tools(messages, TOOL_SPECS,
+                                            model=settings.model_agent or None)
             tool_calls = msg.get("tool_calls")
             if not tool_calls:
                 return {"raw_result": msg.get("content"),

@@ -351,7 +351,7 @@ async def test_concurrent_messages_from_different_users_do_not_cross_talk():
     the turn_context ContextVar or shared graph."""
     from bot.turn_context import turn_context
 
-    async def fake_chat_with_tools(messages, tools):
+    async def fake_chat_with_tools(messages, tools, model=None):
         ctx = turn_context.get()
         await asyncio.sleep(0.01)  # force interleaving between the two turns
         return {"content": f"uid={ctx['user_id']}|img={ctx['image_bytes']}", "tool_calls": None}

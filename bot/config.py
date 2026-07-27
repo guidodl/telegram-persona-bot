@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     brave_api_key: str = ""
     database_url: str = ""
     model_chat: str = "deepseek/deepseek-v4-flash"
+    model_agent: str = ""  # model for the tool-loop decisions (e.g. whether to send a pic); empty = same as model_chat
     model_vision: str = "google/gemini-2.5-flash"
     model_embed: str = "openai/text-embedding-3-small"
     tts_model: str = "x-ai/grok-voice-tts-1.0"  # OpenRouter speech model; see ?output_modalities=speech
