@@ -2,7 +2,7 @@ from typing import TypedDict
 
 
 class GraphState(TypedDict):
-    chat_id: int
+    user_id: int
     user_text: str
     image_bytes: bytes | None
     profile: dict

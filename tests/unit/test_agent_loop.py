@@ -15,7 +15,7 @@ async def test_loop_dispatches_tool_then_returns_final():
          patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])), \
          patch.dict("bot.nodes.agent.TOOL_FUNCS",
                     {"recall": AsyncMock(return_value="- learning guitar")}, clear=False):
-        out = await agent.agent_node({"chat_id": 7, "user_text": "what do I play?",
+        out = await agent.agent_node({"user_id": 7, "user_text": "what do I play?",
                                       "image_bytes": None})
     assert out["raw_result"] == "You mentioned you're learning guitar."
 
@@ -32,7 +32,7 @@ async def test_loop_sets_hint_and_found_image_url():
     with patch("bot.nodes.agent.llm.chat_with_tools", new=AsyncMock(side_effect=calls)), \
          patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])), \
          patch.dict("bot.nodes.agent.TOOL_FUNCS", {"image_search": img_search}, clear=False):
-        out = await agent.agent_node({"chat_id": 7, "user_text": "send a cat", "image_bytes": None})
+        out = await agent.agent_node({"user_id": 7, "user_text": "send a cat", "image_bytes": None})
     assert out["found_image_url"] == "http://img/1.jpg"
 
 async def test_photo_adds_vision_hint_to_first_user_message():
@@ -42,7 +42,7 @@ async def test_photo_adds_vision_hint_to_first_user_message():
         return _msg(content="ok")
     with patch("bot.nodes.agent.llm.chat_with_tools", new=cap), \
          patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])):
-        await agent.agent_node({"chat_id": 7, "user_text": "what is this", "image_bytes": b"x"})
+        await agent.agent_node({"user_id": 7, "user_text": "what is this", "image_bytes": b"x"})
     assert any("vision_analyze" in str(m.get("content", "")) for m in captured["msgs"])
     assert not any(m.get("content") == b"x" for m in captured["msgs"])
     assert all(not isinstance(m.get("content"), bytes) for m in captured["msgs"])
@@ -50,7 +50,7 @@ async def test_photo_adds_vision_hint_to_first_user_message():
 async def test_agent_node_never_raises():
     with patch("bot.nodes.agent.llm.chat_with_tools", new=AsyncMock(side_effect=RuntimeError("boom"))), \
          patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])):
-        out = await agent.agent_node({"chat_id": 7, "user_text": "hi", "image_bytes": None})
+        out = await agent.agent_node({"user_id": 7, "user_text": "hi", "image_bytes": None})
     assert out["raw_result"] is None and "boom" in out["agent_error"]
 
 async def test_recent_turns_reversed_to_chronological_with_current_message_last():
@@ -61,7 +61,7 @@ async def test_recent_turns_reversed_to_chronological_with_current_message_last(
     newest_first = [{"role": "assistant", "content": "B"}, {"role": "user", "content": "A"}]
     with patch("bot.nodes.agent.llm.chat_with_tools", new=cap), \
          patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=newest_first)):
-        await agent.agent_node({"chat_id": 7, "user_text": "current", "image_bytes": None})
+        await agent.agent_node({"user_id": 7, "user_text": "current", "image_bytes": None})
     contents = [m["content"] for m in captured["msgs"]]
     assert contents == ["A", "B", "current"]
 
@@ -74,6 +74,28 @@ async def test_iteration_budget_exhausted_returns_without_raising():
          patch("bot.nodes.agent.settings.agent_max_iterations", 2), \
          patch.dict("bot.nodes.agent.TOOL_FUNCS",
                     {"recall": AsyncMock(return_value="- some fact")}, clear=False):
-        out = await agent.agent_node({"chat_id": 7, "user_text": "loop forever?",
+        out = await agent.agent_node({"user_id": 7, "user_text": "loop forever?",
                                       "image_bytes": None})
     assert "raw_result" in out and "agent_error" not in out
+
+async def test_briefing_prepended_when_persona_configured():
+    captured = {}
+    async def cap(messages, tools, model=None):
+        captured["msgs"] = messages
+        return _msg(content="ok")
+    with patch("bot.nodes.agent.llm.chat_with_tools", new=cap), \
+         patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.nodes.agent.build_agent_briefing", return_value="BRIEFING: sei Erminio"):
+        await agent.agent_node({"user_id": 7, "user_text": "ciao", "image_bytes": None})
+    assert captured["msgs"][0] == {"role": "system", "content": "BRIEFING: sei Erminio"}
+
+async def test_no_briefing_for_generic_persona():
+    captured = {}
+    async def cap(messages, tools, model=None):
+        captured["msgs"] = messages
+        return _msg(content="ok")
+    with patch("bot.nodes.agent.llm.chat_with_tools", new=cap), \
+         patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.nodes.agent.build_agent_briefing", return_value=None):
+        await agent.agent_node({"user_id": 7, "user_text": "ciao", "image_bytes": None})
+    assert all(m["role"] != "system" for m in captured["msgs"])

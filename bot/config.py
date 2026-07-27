@@ -4,6 +4,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     telegram_bot_token: str = ""
+    bot_name: str = ""  # name the bot answers to in groups when addressed without an @mention
+    bot_aliases: str = ""  # comma-separated extra names the bot answers to in groups
+    group_allowed_chats: str = ""  # comma-separated group chat IDs; empty = respond in any group
+    allowed_users: str = ""  # comma-separated Telegram user IDs allowed to DM the bot; empty = everyone
+    persona_file: str = ""  # path to a persona definition file; empty = generic companion persona
     openrouter_api_key: str = ""
     openai_api_key: str = ""
     tavily_api_key: str = ""

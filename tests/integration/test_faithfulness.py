@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 from bot.nodes.compose_persona import compose_persona
 
-BASE = {"chat_id": 1, "profile": {"name": "Sam"}, "memories": [],
+BASE = {"user_id": 1, "profile": {"name": "Sam"}, "memories": [],
         "user_text": "what's the capital of Peru?", "found_image_url": None}
 
 OTHER_CAPITALS = ["Quito", "Bogotá", "Santiago", "Buenos Aires", "Brasília"]

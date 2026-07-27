@@ -1,3 +1,11 @@
+import functools
+import logging
+from pathlib import Path
+
+from bot.config import settings
+
+logger = logging.getLogger(__name__)
+
 PERSONA_PREAMBLE = (
     "You are a warm, present companion having a natural conversation with someone you "
     "know well. Speak as yourself, in your own voice — never as an assistant."
@@ -16,8 +24,44 @@ SILENCE_RULES = (
 )
 
 
+AGENT_BRIEFING = (
+    "You are the fact-gathering engine behind a Telegram persona bot. Another model "
+    "rewrites your output into the final in-character reply — you never write "
+    "user-facing text yourself. Use your tools to fetch whatever the persona's reply "
+    "will need: fresh facts via web_search, remembered details via recall, photos via "
+    "image_search. When the persona definition below implies a photo should be sent "
+    "(for example a trigger that answers with a picture), call image_search with a "
+    "query specific enough to guarantee the right subject, then return minimal raw "
+    "facts. Never mention tools in your output.\n\nPersona definition:\n"
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _read_persona_file(path: str) -> str:
+    return Path(path).read_text(encoding="utf-8").strip()
+
+
+def load_persona_preamble() -> str:
+    """Deployment-specific persona from PERSONA_FILE, else the generic preamble."""
+    if settings.persona_file:
+        try:
+            return _read_persona_file(settings.persona_file)
+        except OSError:
+            logger.warning("persona_file %r unreadable, using generic preamble",
+                           settings.persona_file)
+    return PERSONA_PREAMBLE
+
+
+def build_agent_briefing() -> str | None:
+    """System message for the agent (fact-gathering) node when a persona file is
+    configured; None for the generic persona, which leaves the agent persona-free."""
+    if not settings.persona_file:
+        return None
+    return AGENT_BRIEFING + load_persona_preamble()
+
+
 def build_system_prompt(profile: dict, memories: list[str]) -> str:
-    sections = [PERSONA_PREAMBLE]
+    sections = [load_persona_preamble()]
 
     known = []
     name = profile.get("name")

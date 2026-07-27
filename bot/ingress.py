@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from unittest.mock import AsyncMock, MagicMock
 
 from telegram import Update
@@ -46,6 +47,45 @@ def _looks_like_raw_tool_output(text: str) -> bool:
             pass
     if "TOOL_CALL:" in text or "TOOL:" in text:
         return True
+    return False
+
+
+def _mention_names() -> list[str]:
+    names = [settings.bot_name]
+    names.extend(a.strip() for a in settings.bot_aliases.split(","))
+    return [n.lower() for n in names if n]
+
+
+def _group_allowed(chat_id: int) -> bool:
+    allowed = [c.strip() for c in settings.group_allowed_chats.split(",") if c.strip()]
+    return not allowed or str(chat_id) in allowed
+
+
+def _user_allowed(user_id: int) -> bool:
+    allowed = [u.strip() for u in settings.allowed_users.split(",") if u.strip()]
+    return not allowed or str(user_id) in allowed
+
+
+def _is_addressed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """In a group, the bot only responds when it's addressed: an @mention of
+    its username, a plain-name mention (settings.bot_name or a bot_aliases
+    entry, no @), or a reply to one of the bot's own messages."""
+    message = update.effective_message
+    reply_to = message.reply_to_message
+    if reply_to and reply_to.from_user and reply_to.from_user.id == context.bot.id:
+        return True
+
+    text = message.text or message.caption or ""
+    lowered = text.lower()
+
+    username = getattr(context.bot, "username", None)
+    if username and f"@{username.lower()}" in lowered:
+        return True
+
+    for name in _mention_names():
+        if re.search(rf"\b{re.escape(name)}\b", lowered):
+            return True
+
     return False
 
 
@@ -108,26 +148,43 @@ async def _post_send_memory_work(chat_id: int, user_text: str, reply_text: str) 
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _user_allowed(update.effective_user.id):
+        return
     await update.message.reply_text(START_MESSAGE)
 
 
 async def forget_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    if not _user_allowed(user_id):
+        return
     try:
-        await forget_user(chat_id)
+        await forget_user(user_id)
     except Exception:
-        logger.exception("forget_user failed for chat_id=%s", chat_id)
+        logger.exception("forget_user failed for user_id=%s", user_id)
         await update.message.reply_text(SEND_GUARD_FALLBACK)
         return
     await update.message.reply_text(FORGET_MESSAGE)
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_chat.type != ChatType.PRIVATE:
-        return
+    chat = update.effective_chat
+    is_private = chat.type == ChatType.PRIVATE
+    if is_private:
+        if not _user_allowed(update.effective_user.id):
+            return
+    else:
+        if not _group_allowed(chat.id):
+            return
+        if not _is_addressed(update, context):
+            return
 
     message = update.effective_message
-    chat = update.effective_chat
+    user_id = update.effective_user.id
+    # Memory is keyed by the speaker (user_id); in a DM chat.id == user.id, so
+    # DM behavior is unchanged. The conversation checkpoint is per-thread: one
+    # thread per user in DMs, one per (group, user) so members don't share a
+    # thread in a group.
+    thread_id = str(user_id) if is_private else f"{chat.id}:{user_id}"
     user_text = message.text or message.caption or ""
 
     image_bytes = None
@@ -135,16 +192,16 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         image_bytes = await media.photo_to_bytes(message.photo)
 
     state = {
-        "chat_id": chat.id,
+        "user_id": user_id,
         "user_text": user_text,
         "image_bytes": image_bytes,
     }
 
     typing_task = asyncio.create_task(_keep_typing(chat))
     try:
-        result = await _graph.ainvoke(state, config={"configurable": {"thread_id": str(chat.id)}})
+        result = await _graph.ainvoke(state, config={"configurable": {"thread_id": thread_id}})
     except Exception:
-        logger.exception("graph invocation failed for chat_id=%s", chat.id)
+        logger.exception("graph invocation failed for user_id=%s", user_id)
         await message.reply_text(SEND_GUARD_FALLBACK)
         return
     finally:
@@ -177,7 +234,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         except Exception:
             logger.exception("photo send failed for chat_id=%s", chat.id)
 
-    asyncio.create_task(_post_send_memory_work(chat.id, user_text, text))
+    asyncio.create_task(_post_send_memory_work(user_id, user_text, text))
     await asyncio.sleep(0)  # yield once so the background task gets scheduled
 
 
@@ -186,13 +243,17 @@ def _fake_text_update(text: str, chat_id: int = 1):
     update = MagicMock()
     update.effective_chat.type = ChatType.PRIVATE
     update.effective_chat.id = chat_id
+    update.effective_user.id = chat_id  # in a DM chat.id == user.id
     update.effective_message.text = text
     update.effective_message.caption = None
     update.effective_message.photo = []
+    update.effective_message.reply_to_message = None
     update.effective_message.reply_text = AsyncMock()
     update.message = update.effective_message
 
     context = MagicMock()
+    context.bot.id = 999
+    context.bot.username = "personabot"
     context.bot.send_voice = AsyncMock()
     context.bot.send_photo = AsyncMock()
 
@@ -216,7 +277,9 @@ def main() -> None:
             application.add_handler(CommandHandler("forget", forget_command))
             application.add_handler(
                 MessageHandler(
-                    (filters.TEXT | filters.PHOTO) & filters.ChatType.PRIVATE & ~filters.COMMAND,
+                    (filters.TEXT | filters.PHOTO)
+                    & (filters.ChatType.PRIVATE | filters.ChatType.GROUPS)
+                    & ~filters.COMMAND,
                     on_message,
                 )
             )

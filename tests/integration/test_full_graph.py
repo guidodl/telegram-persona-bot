@@ -49,7 +49,7 @@ async def test_full_graph_only_compose_persona_output_reaches_sink(pg_url):
                new=AsyncMock(return_value=persona_reply)), \
          patch("bot.memory.llm.embed", new=AsyncMock(side_effect=_fake_embed)):
         graph = build_graph()
-        out = await graph.ainvoke({"chat_id": 501, "user_text": "what's the weather like?",
+        out = await graph.ainvoke({"user_id": 501, "user_text": "what's the weather like?",
                                    "image_bytes": None})
 
     assert out["reply"]["text"] == persona_reply
@@ -83,7 +83,7 @@ async def test_cross_session_memory_fact_persists_and_is_recalled(pg_url):
          patch("bot.memory.llm.embed", new=AsyncMock(side_effect=_fake_embed)):
         graph = build_graph()
         user_text_1 = "My favorite color is teal."
-        out1 = await graph.ainvoke({"chat_id": chat_id, "user_text": user_text_1,
+        out1 = await graph.ainvoke({"user_id": chat_id, "user_text": user_text_1,
                                     "image_bytes": None})
     reply_text_1 = out1["reply"]["text"]
 
@@ -104,7 +104,7 @@ async def test_cross_session_memory_fact_persists_and_is_recalled(pg_url):
                new=AsyncMock(return_value="Teal is a great color!")), \
          patch("bot.memory.llm.embed", new=AsyncMock(side_effect=_fake_embed)):
         graph2 = build_graph()
-        out2 = await graph2.ainvoke({"chat_id": chat_id, "user_text": "what's my favorite color?",
+        out2 = await graph2.ainvoke({"user_id": chat_id, "user_text": "what's my favorite color?",
                                      "image_bytes": None})
 
     assert fact in out2["memories"]

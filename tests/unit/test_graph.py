@@ -13,7 +13,7 @@ async def test_only_compose_persona_output_reaches_state():
                new=AsyncMock(return_value={"reply": {"text": "Nice and sunny!",
                                                      "voice": False, "image_url": None}})):
         graph = build_graph()
-        out = await graph.ainvoke({"chat_id": 1, "user_text": "weather?", "image_bytes": None})
+        out = await graph.ainvoke({"user_id": 1, "user_text": "weather?", "image_bytes": None})
     assert out["reply"]["text"] == "Nice and sunny!"
     assert "TOOL:" not in out["reply"]["text"]
     assert "rawJSON" not in out["reply"]["text"]

@@ -1,6 +1,7 @@
 # telegram-persona-bot
 
-A Telegram DM companion bot with a persistent, per-user persona. Facts and
+A Telegram companion bot with a persistent, per-user persona. Works in direct
+messages and in group chats (where it replies only when addressed). Facts and
 memory live in Postgres (+ pgvector); the bot process itself is stateless.
 
 ## Overview
@@ -46,6 +47,18 @@ dependency, and there is no per-user `HERMES_HOME` — all durable state
 (profile, memories, conversation turns) lives in Postgres, and `/forget`
 deletes those rows.
 
+### Personas
+
+By default the bot speaks with a generic warm-companion preamble. Set
+`PERSONA_FILE` to a markdown/text file with a persona definition (identity,
+style, triggers — see `bot/personas/erminio.md` for a full example) to give
+the bot a specific character. The persona text becomes the system preamble of
+`compose_persona` (the hard `SILENCE_RULES` are always appended), and a
+short agent-facing briefing derived from it is prepended to the `agent` node's
+message list so tool choices (e.g. when to `image_search`) follow the
+persona's triggers. A missing/unreadable file falls back to the generic
+preamble with a warning.
+
 ## Prerequisites
 
 - Python 3.12+
@@ -62,6 +75,11 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 | Variable | Default | Purpose |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | `""` | Telegram bot API token |
+| `BOT_NAME` | `""` | Plain name the bot answers to in groups (no `@` needed) |
+| `BOT_ALIASES` | `""` | Comma-separated extra names the bot answers to in groups |
+| `GROUP_ALLOWED_CHATS` | `""` | Comma-separated group chat IDs the bot may answer in; empty = any group |
+| `ALLOWED_USERS` | `""` | Comma-separated Telegram user IDs allowed to DM the bot; empty = everyone |
+| `PERSONA_FILE` | `""` | Path to a persona definition file (e.g. `bot/personas/erminio.md`); empty = generic companion persona |
 | `OPENROUTER_API_KEY` | `""` | Chat/vision/embedding calls via OpenRouter |
 | `OPENAI_API_KEY` | `""` | OpenAI TTS (`tts.synth`) and optional OpenAI embeddings backend |
 | `TAVILY_API_KEY` | `""` | `web_search` tool |
@@ -112,8 +130,28 @@ cp .env.example .env   # fill in real values; set DATABASE_URL to
 ```
 
 `bot/ingress.py` runs the bot via long-polling (`Application.updater.start_polling()`).
-It only handles direct messages — non-private chats are ignored — and
-registers `/start` and `/forget`, plus a text/photo message handler.
+It handles both direct messages and group chats, and registers `/start` and
+`/forget`, plus a text/photo message handler.
+
+### Group chats
+
+In a group the bot stays silent unless it is **addressed**:
+
+- someone `@mention`s its username, or
+- mentions it by `BOT_NAME` (plain name, no `@`) or by a `BOT_ALIASES` entry
+  (comma-separated extra names), or
+- replies to one of the bot's own messages.
+
+When `GROUP_ALLOWED_CHATS` is set (comma-separated chat IDs), the bot only
+answers in those groups and stays silent everywhere else; empty means any
+group.
+
+Memory and persona are keyed by the **speaker's** Telegram user id, not the
+chat — so the bot knows each person consistently across their DMs and any
+group they share. In a DM the chat id equals the user id, so DM behavior is
+unchanged. Conversation history is checkpointed per thread: one thread per
+user in DMs, one per `(group, user)` in groups, so members never share a
+conversation. `/forget` wipes the calling user's own memory.
 
 ## Tests
 
@@ -182,5 +220,3 @@ Not implemented in this version:
   beyond web/image search)
 - Voice-in / speech-to-text (only voice-*out* via OpenAI TTS is supported)
 - Image generation (only image *search*, via Brave, is supported)
-- Group chats (the bot is DM-only by design — `on_message` ignores any
-  non-`ChatType.PRIVATE` chat)

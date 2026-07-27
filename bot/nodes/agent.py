@@ -1,19 +1,23 @@
 import json
 from bot import llm, memory
 from bot.config import settings
+from bot.persona import build_agent_briefing
 from bot.tools import TOOL_SPECS, TOOL_FUNCS
 from bot.turn_context import turn_context
 
 async def agent_node(state) -> dict:
     token = turn_context.set({"image_bytes": state.get("image_bytes"),
-                              "found_image_url": None, "user_id": state["chat_id"]})
+                              "found_image_url": None, "user_id": state["user_id"]})
     try:
-        recent = await memory.recent_turns(state["chat_id"], 10)
+        recent = await memory.recent_turns(state["user_id"], 10)
         messages = [{"role": r["role"], "content": r["content"]} for r in reversed(recent)]
         prompt = state["user_text"]
         if state.get("image_bytes"):
             prompt += "\n\n(The user sent a photo with this message; call vision_analyze to see it.)"
         messages.append({"role": "user", "content": prompt})
+        briefing = build_agent_briefing()
+        if briefing:
+            messages.insert(0, {"role": "system", "content": briefing})
 
         for _ in range(settings.agent_max_iterations):
             msg = await llm.chat_with_tools(messages, TOOL_SPECS)

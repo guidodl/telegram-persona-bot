@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, patch
 from bot.nodes.compose_persona import compose_persona
 
-BASE = {"chat_id": 1, "profile": {"name": "Sam"}, "memories": [],
+BASE = {"user_id": 1, "profile": {"name": "Sam"}, "memories": [],
         "user_text": "tell me about the weather", "found_image_url": None}
 
 async def test_reply_uses_only_llm_chat_no_tools():

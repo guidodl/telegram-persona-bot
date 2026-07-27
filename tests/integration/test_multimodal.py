@@ -25,7 +25,7 @@ async def test_photo_bytes_flow_through_turn_context_into_vision_analyze():
     with patch("bot.nodes.agent.llm.chat_with_tools", new=AsyncMock(side_effect=calls)), \
          patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])), \
          patch("bot.tools.llm.chat_vision", new=AsyncMock(return_value="a red bicycle")) as vision_mock:
-        out = await agent.agent_node({"chat_id": 1, "user_text": "what's in this photo?",
+        out = await agent.agent_node({"user_id": 1, "user_text": "what's in this photo?",
                                       "image_bytes": image_bytes})
 
     assert out["raw_result"] == "That's a red bicycle leaning against a brick wall."
