@@ -69,7 +69,7 @@ async def compose_persona(state) -> dict:
         {"role": "system", "content": f"{facts_message}\n\n{VOICE_INSTRUCTION}"},
     ]
 
-    text = await llm.chat(messages)
+    text = await llm.chat(messages) or ""
 
     text = _strip_markdown(text)
     text, voice = _extract_voice_tag(text)

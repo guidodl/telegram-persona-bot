@@ -1,4 +1,4 @@
-import asyncio, httpx
+import asyncio, re, httpx
 from bot.config import settings
 
 OPENROUTER = "https://openrouter.ai/api/v1"
@@ -24,10 +24,27 @@ def _or_headers() -> dict:
     return {"Authorization": f"Bearer {settings.openrouter_api_key}"}
 
 
+# Some models (e.g. deepseek reasoning variants) intermittently return a
+# null/empty completion or a raw end-of-sequence control token instead of
+# prose. Retrying the same request almost always yields real text.
+_CONTROL_TOKEN_RE = re.compile(r"<[｜|].*?[｜|]>")
+
+
+def _usable_content(msg: dict) -> str:
+    content = msg.get("content") or ""
+    content = _CONTROL_TOKEN_RE.sub("", content).strip()
+    return content
+
+
 async def chat(messages: list[dict], model: str | None = None) -> str:
-    data = await _post(f"{OPENROUTER}/chat/completions", _or_headers(),
-                       {"model": model or settings.model_chat, "messages": messages})
-    return data["choices"][0]["message"]["content"]
+    payload = {"model": model or settings.model_chat, "messages": messages}
+    text = ""
+    for _ in range(3):
+        data = await _post(f"{OPENROUTER}/chat/completions", _or_headers(), payload)
+        text = _usable_content(data["choices"][0]["message"])
+        if text:
+            return text
+    return text
 
 
 async def chat_with_tools(messages: list[dict], tools: list[dict],

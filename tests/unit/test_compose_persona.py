@@ -27,6 +27,13 @@ async def test_graceful_fallback_on_agent_error():
     assert out["reply"]["image_url"] is None
 
 
+async def test_none_reply_from_model_does_not_crash():
+    with patch("bot.nodes.compose_persona.llm.chat",
+               new=AsyncMock(return_value=None)):
+        out = await compose_persona({**BASE, "raw_result": "temp 24C clear"})
+    assert out["reply"]["text"] == ""
+
+
 async def test_voice_tag_sets_voice_true_and_is_stripped_from_text():
     with patch("bot.nodes.compose_persona.llm.chat",
                new=AsyncMock(return_value="[VOICE] hey there")):

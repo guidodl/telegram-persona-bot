@@ -81,6 +81,57 @@ async def test_post_raises_last_error_after_all_retries_fail(monkeypatch):
 
 
 @respx.mock
+async def test_chat_retries_on_null_content_then_succeeds(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+
+    async def _fake_sleep(s):
+        return None
+
+    monkeypatch.setattr(llm.asyncio, "sleep", _fake_sleep)
+    route = respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json={"choices": [{"message": {"content": None}}]}),
+            httpx.Response(200, json={"choices": [{"message": {"content": "hi there"}}]}),
+        ])
+    out = await llm.chat([{"role": "user", "content": "yo"}])
+    assert out == "hi there"
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_chat_strips_control_token_and_retries(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+
+    async def _fake_sleep(s):
+        return None
+
+    monkeypatch.setattr(llm.asyncio, "sleep", _fake_sleep)
+    route = respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json={"choices": [{"message": {
+                "content": "<｜end▁of▁sentence｜>"}}]}),
+            httpx.Response(200, json={"choices": [{"message": {"content": "real reply"}}]}),
+        ])
+    out = await llm.chat([{"role": "user", "content": "yo"}])
+    assert out == "real reply"
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_chat_returns_empty_string_never_none_when_all_degenerate(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+
+    async def _fake_sleep(s):
+        return None
+
+    monkeypatch.setattr(llm.asyncio, "sleep", _fake_sleep)
+    respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": None}}]}))
+    out = await llm.chat([{"role": "user", "content": "yo"}])
+    assert out == ""
+
+
+@respx.mock
 async def test_embed_uses_openai_backend_when_configured(monkeypatch):
     monkeypatch.setattr(settings, "embed_backend", "openai")
     monkeypatch.setattr(settings, "openai_api_key", "ok")
