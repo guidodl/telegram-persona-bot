@@ -17,13 +17,14 @@ class Settings(BaseSettings):
     model_chat: str = "deepseek/deepseek-v4-flash"
     model_vision: str = "google/gemini-2.5-flash"
     model_embed: str = "openai/text-embedding-3-small"
-    tts_model: str = "gpt-4o-mini-tts"
+    tts_model: str = "x-ai/grok-voice-tts-1.0"  # OpenRouter speech model; see ?output_modalities=speech
+    tts_voice: str = "leo"  # must be a supported_voices entry for tts_model
     embed_dim: int = 1536
     embed_backend: str = "openrouter"  # or "openai"
     pacing_enabled: bool = True
     pacing_delay_min_s: float = 0.5
     pacing_delay_max_s: float = 2.0
-    agent_max_iterations: int = 90  # O5 default; bounds the hand-rolled tool loop (Task 7)
+    agent_max_iterations: int = 6  # bounds the hand-rolled tool loop; each iteration is a serial LLM round-trip, so this caps worst-case reply latency
 
 
 settings = Settings()

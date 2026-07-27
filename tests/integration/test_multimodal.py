@@ -38,12 +38,11 @@ async def test_photo_bytes_flow_through_turn_context_into_vision_analyze():
 
 
 @respx.mock
-async def test_voice_flagged_reply_synthesizes_real_audio_and_sends_voice(monkeypatch):
-    """voice-flagged reply -> real tts.synth (HTTP mocked) + real media.to_voice
-    -> ingress hands the actual synthesized bytes to sendVoice."""
-    monkeypatch.setenv("OPENAI_API_KEY", "k")
-    respx.post("https://api.openai.com/v1/audio/speech").mock(
-        return_value=httpx.Response(200, content=b"OGGVOICEBYTES"))
+async def test_voice_flagged_reply_synthesizes_real_audio_and_sends_audio():
+    """voice-flagged reply -> real tts.synth (HTTP mocked) + real media.to_audio
+    -> ingress hands the actual synthesized bytes to sendAudio."""
+    respx.post("https://openrouter.ai/api/v1/audio/speech").mock(
+        return_value=httpx.Response(200, content=b"MP3VOICEBYTES"))
 
     with patch("bot.ingress.persist_memory", new=AsyncMock()), \
          patch("bot.ingress._graph") as g:
@@ -52,11 +51,11 @@ async def test_voice_flagged_reply_synthesizes_real_audio_and_sends_voice(monkey
         update, ctx = ingress._fake_text_update("hello", chat_id=5)
         await ingress.on_message(update, ctx)
 
-    ctx.bot.send_voice.assert_awaited_once()
-    kwargs = ctx.bot.send_voice.await_args.kwargs
+    ctx.bot.send_audio.assert_awaited_once()
+    kwargs = ctx.bot.send_audio.await_args.kwargs
     assert kwargs["chat_id"] == 5
-    assert kwargs["voice"].input_file_content == b"OGGVOICEBYTES"
-    assert kwargs["voice"].filename == "voice.ogg"
+    assert kwargs["audio"].input_file_content == b"MP3VOICEBYTES"
+    assert kwargs["audio"].filename == "voice.mp3"
 
 
 @respx.mock
