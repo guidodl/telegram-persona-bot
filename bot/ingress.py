@@ -63,7 +63,8 @@ def _chunk_reply(text: str) -> list[str]:
     if len(text) <= limit:
         return [text]
     midpoint = len(text) // 2
-    split_at = text.rfind(" ", 0, midpoint) or midpoint
+    split_at = text.rfind(" ", 0, midpoint)
+    split_at = split_at if split_at > 0 else midpoint
     return [text[:split_at].strip(), text[split_at:].strip()]
 
 
@@ -141,7 +142,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     typing_task = asyncio.create_task(_keep_typing(chat))
     try:
-        result = await _graph.ainvoke(state)
+        result = await _graph.ainvoke(state, config={"configurable": {"thread_id": str(chat.id)}})
     except Exception:
         logger.exception("graph invocation failed for chat_id=%s", chat.id)
         await message.reply_text(SEND_GUARD_FALLBACK)
@@ -205,7 +206,12 @@ def main() -> None:
         global _graph
         async with postgres_checkpointer() as checkpointer:
             _graph = build_graph(checkpointer=checkpointer)
-            application = ApplicationBuilder().token(settings.telegram_bot_token).build()
+            application = (
+                ApplicationBuilder()
+                .token(settings.telegram_bot_token)
+                .concurrent_updates(True)
+                .build()
+            )
             application.add_handler(CommandHandler("start", start_command))
             application.add_handler(CommandHandler("forget", forget_command))
             application.add_handler(
