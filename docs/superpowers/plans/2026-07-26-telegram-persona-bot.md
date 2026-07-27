@@ -1,5 +1,7 @@
 # Telegram Persona Bot Implementation Plan
 
+> **Status: ✅ ALL 16 TASKS COMPLETE.** Implemented on `feat/persona-bot-impl` and merged to `master` (merge commit `58219d7`, "Merge feat/persona-bot-impl: Telegram persona bot (16 tasks, fallback branch)"). Full test suite: 72 passed (unit + Docker-backed integration via testcontainers). See the per-task commit references inline below and `README.md` for run/test/deploy instructions. Remaining manual-verification items (AC-5, AC-7, AC-12) are noted in their Acceptance Criteria rows — code and mocked-test coverage are done, live end-to-end runs against real Telegram/Postgres/API keys have not been performed.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a from-scratch Telegram DM bot that roleplays a per-user adaptive persona, reasons and uses tools silently, and never reveals tool use or reasoning to the user.
@@ -81,11 +83,11 @@ telegram-persona-bot/
 **Interfaces:**
 - Produces: a recorded decision in `docs/spike-notes.md` — either "bridge path confirmed, field names = {…}" or "fallback branch: hand-rolled loop". **Gates Tasks 6–7.**
 
-- [ ] **Step 1: Add the pinned dependency**
+- [x] **Step 1: Add the pinned dependency**
 
 In `pyproject.toml`, under `[project]` dependencies, add `langstage-hermes[openai]==<exact-latest>` (resolve the exact version at install time; pin it — no floating). Create a venv and install.
 
-- [ ] **Step 2: Write the API-surface probe script**
+- [x] **Step 2: Write the API-surface probe script**
 
 `scripts/spike_hermes_api.py` — import and introspect, printing each name this plan relies on:
 
@@ -112,16 +114,16 @@ Expected reference values (from the package SPEC — adapt names cosmetically if
 - `PluginContext.register_tool(fn, toolset=...)`, `register_memory_provider(provider)`
 - built-in `web` toolset honors `TAVILY_API_KEY`
 
-- [ ] **Step 3: Run the probe and the package's own live check**
+- [x] **Step 3: Run the probe and the package's own live check**
 
 Run: `python scripts/spike_hermes_api.py` and record output.
 Run: `langstage-hermes verify` with OpenRouter env set (see Task 4 env). Expected: live round-trip passes.
 
-- [ ] **Step 4: Record the decision in `docs/spike-notes.md`**
+- [x] **Step 4: Record the decision in `docs/spike-notes.md`**
 
 Write findings: confirmed field names (or cosmetic diffs), plugin discovery mechanism (entry-point group name vs dir scan), whether the bridge path is viable. **If structurally unviable → record "FALLBACK BRANCH" explicitly**, with the reason. Do NOT improvise a workaround.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git init && git add pyproject.toml scripts/spike_hermes_api.py docs/spike-notes.md
@@ -132,7 +134,7 @@ git commit -m "chore: gating spike — verify langstage-hermes API surface"
 
 ---
 
-### Task 2: Scaffold the project
+### Task 2: Scaffold the project ✅ DONE (commit `b3f1c65`)
 
 **Files:**
 - Create: `pyproject.toml` (full dependency manifest), `bot/__init__.py`, `bot/nodes/__init__.py`, `tests/unit/__init__.py`, `tests/integration/__init__.py`, `tests/conftest.py`
@@ -140,7 +142,7 @@ git commit -m "chore: gating spike — verify langstage-hermes API surface"
 **Interfaces:**
 - Produces: an installable package `bot` with all deps and a green (empty) pytest run.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/unit/test_scaffold.py`:
 
@@ -149,12 +151,12 @@ def test_bot_package_imports():
     import bot  # noqa: F401
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/unit/test_scaffold.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'bot'`
 
-- [ ] **Step 3: Fill `pyproject.toml` and create package dirs**
+- [x] **Step 3: Fill `pyproject.toml` and create package dirs**
 
 `pyproject.toml` dependencies (**fallback branch — no `langstage-hermes`/`langchain-openai`**; this is already the committed state after Task 1):
 ```toml
@@ -181,12 +183,12 @@ asyncio_mode = "auto"
 
 Create the empty `__init__.py` files and `tests/conftest.py` (empty for now). Drop `bot/hermes_plugin/__init__.py` from the scaffold (not used on the fallback branch). `pip install -e ".[dev]"`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/unit/test_scaffold.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml bot tests
@@ -197,7 +199,7 @@ git commit -m "chore: scaffold package layout and dependencies"
 
 ---
 
-### Task 3: Postgres + pgvector schema + migration runner
+### Task 3: Postgres + pgvector schema + migration runner ✅ DONE (commit `5bee409`)
 
 **Files:**
 - Create: `migrations/0001_init.sql`, `bot/migrate.py`
@@ -207,7 +209,7 @@ git commit -m "chore: scaffold package layout and dependencies"
 - Produces: `async def apply_migrations(database_url: str) -> None` — applies `migrations/*.sql` in filename order, tracking applied files in `schema_migrations`. Idempotent.
 - Schema: `users(telegram_user_id BIGINT PK, name, preferences JSONB, tone, summary, created_at, updated_at)`, `memories(id BIGSERIAL PK, telegram_user_id FK, text, embedding vector(1536), source, created_at)` + HNSW cosine index, `turns(id BIGSERIAL PK, telegram_user_id, role, content, created_at)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/integration/test_migrate.py` (testcontainers Postgres with the `pgvector/pgvector:pg16` image):
 
@@ -233,12 +235,12 @@ async def test_migrations_create_tables_and_are_idempotent(pg_url):
     assert {"users", "memories", "turns", "schema_migrations"} <= names
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/integration/test_migrate.py -v`
 Expected: FAIL — `ModuleNotFoundError: bot.migrate`
 
-- [ ] **Step 3: Write the migration SQL and runner**
+- [x] **Step 3: Write the migration SQL and runner**
 
 `migrations/0001_init.sql`:
 ```sql
@@ -286,12 +288,12 @@ async def apply_migrations(database_url: str) -> None:
             conn.execute("INSERT INTO schema_migrations(filename) VALUES (%s)", (path.name,))
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/integration/test_migrate.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add migrations/0001_init.sql bot/migrate.py tests/integration/test_migrate.py
@@ -302,7 +304,7 @@ git commit -m "feat: pgvector schema and idempotent migration runner"
 
 ---
 
-### Task 4: Config + `llm` facade
+### Task 4: Config + `llm` facade ✅ DONE (commit `5f30e09`; retry/backoff + openai-embed coverage added in `c179136`)
 
 **Files:**
 - Create: `bot/config.py`, `bot/llm.py`
@@ -313,7 +315,7 @@ git commit -m "feat: pgvector schema and idempotent migration runner"
 - Produces: `bot.llm.chat(messages: list[dict], model: str | None = None) -> str`, `bot.llm.chat_vision(messages: list[dict], model: str | None = None) -> str`, `bot.llm.embed(texts: list[str]) -> list[list[float]]`. All async, `httpx`, 3 retries with backoff.
 - Produces (fallback branch): `bot.llm.chat_with_tools(messages: list[dict], tools: list[dict], model: str | None = None) -> dict` — returns the raw assistant message object (may contain `tool_calls`), for the hand-rolled agent loop in Task 7.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_config.py`:
 ```python
@@ -353,12 +355,12 @@ async def test_embed_returns_vectors(monkeypatch):
 
 (Add `respx` to dev deps.)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_config.py tests/unit/test_llm.py -v`
 Expected: FAIL — modules not defined.
 
-- [ ] **Step 3: Write config and the facade**
+- [x] **Step 3: Write config and the facade**
 
 `bot/config.py`:
 ```python
@@ -436,12 +438,12 @@ async def embed(texts: list[str]) -> list[list[float]]:
     return [row["embedding"] for row in data["data"]]
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_config.py tests/unit/test_llm.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/config.py bot/llm.py tests/unit/test_config.py tests/unit/test_llm.py pyproject.toml
@@ -452,7 +454,7 @@ git commit -m "feat: env config and OpenRouter llm facade (chat/vision/embed)"
 
 ---
 
-### Task 5: `memory` facade (Postgres + pgvector)
+### Task 5: `memory` facade (Postgres + pgvector) ✅ DONE (commit `03f50b3`; race-safety fix in `734bcd9`)
 
 **Files:**
 - Create: `bot/memory.py`
@@ -462,7 +464,7 @@ git commit -m "feat: env config and OpenRouter llm facade (chat/vision/embed)"
 - Consumes: `bot.llm.embed`, `bot.config.settings.database_url`.
 - Produces (all async): `get_profile(user_id) -> dict` (lazy-creates row), `search_memories(user_id, query, k=5) -> list[str]`, `upsert_memories(user_id, facts: list[str]) -> None`, `update_profile_summary(user_id, summary) -> None`, `log_turn(user_id, role, content) -> None`, `recent_turns(user_id, n=10) -> list[dict]`, `forget_user(user_id) -> None`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/integration/test_memory.py`:
 ```python
@@ -497,21 +499,21 @@ async def test_upsert_then_semantic_recall_and_forget(pg_url):
         assert await memory.search_memories(42, "guitar", k=5) == []
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/integration/test_memory.py -v`
 Expected: FAIL — `bot.memory` not defined.
 
-- [ ] **Step 3: Write the facade**
+- [x] **Step 3: Write the facade**
 
 `bot/memory.py` — SQLAlchemy async engine built lazily from `settings.database_url`; embeddings via `bot.llm.embed`; pgvector cosine ordering (`embedding <=> :q`). Functions exactly per the Interfaces block. `forget_user` deletes from `memories` + `turns` and resets the `users` row (name/summary/preferences/tone cleared). `search_memories` embeds the query, orders by cosine distance ascending, returns the `text` column of the top-K.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/integration/test_memory.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/memory.py tests/integration/test_memory.py
@@ -522,7 +524,7 @@ git commit -m "feat: pg+pgvector memory facade with semantic recall and /forget 
 
 ---
 
-### Task 6: Turn context + plain async tools (FALLBACK BRANCH)
+### Task 6: Turn context + plain async tools (FALLBACK BRANCH) ✅ DONE (commit `57ec44c`; test hardening in `906547b`)
 
 > Replaces the original Task 6 (Hermes plugin). No plugin, no `MemoryProvider` — the tools are plain async functions the Task-7 loop dispatches directly. Tool *bodies* are as originally designed; per-user isolation comes from the turn context + `chat_id`, not a session-keyed provider.
 
@@ -536,7 +538,7 @@ git commit -m "feat: pg+pgvector memory facade with semantic recall and /forget 
 - Produces: async tools `web_search(query: str) -> str` (Tavily, O8), `recall(query: str) -> str` (top-K from `memory.search_memories` for the turn's `user_id`), `image_search(query: str) -> str` (Brave `safesearch=strict`; sets `found_image_url` in turn context, returns a confirmation string), `vision_analyze() -> str` (reads `image_bytes` from turn context, returns a description). All resolve `user_id`/`image_bytes` from `turn_context`, so no user identity is ever passed through the model.
 - Produces: `TOOL_SPECS: list[dict]` — the OpenAI-format tool schemas for the four tools, and `TOOL_FUNCS: dict[str, callable]` mapping tool name → coroutine, both consumed by Task 7.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_turn_context.py`:
 ```python
@@ -592,12 +594,12 @@ async def test_web_search_returns_summary(monkeypatch):
     assert "answer text" in out
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_turn_context.py tests/unit/test_tools.py -v`
 Expected: FAIL — modules not defined.
 
-- [ ] **Step 3: Write turn_context and tools**
+- [x] **Step 3: Write turn_context and tools**
 
 `bot/turn_context.py`:
 ```python
@@ -663,12 +665,12 @@ TOOL_FUNCS = {"web_search": web_search, "recall": recall,
               "image_search": image_search, "vision_analyze": vision_analyze}
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_turn_context.py tests/unit/test_tools.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/turn_context.py bot/tools.py tests/unit/test_turn_context.py tests/unit/test_tools.py
@@ -679,7 +681,7 @@ git commit -m "feat: turn context + plain async tools (web/recall/image/vision) 
 
 ---
 
-### Task 7: `bot/nodes/agent.py` — hand-rolled DeepSeek tool loop (FALLBACK BRANCH)
+### Task 7: `bot/nodes/agent.py` — hand-rolled DeepSeek tool loop (FALLBACK BRANCH) ✅ DONE (commit `a730a6e`; extra loop-edge-case tests in `4d24a73`)
 
 > Replaces the original Task 7 (per-user Hermes provisioning). No `HERMES_HOME`, no LRU graph cache. The `agent` node is a bounded loop over `llm.chat_with_tools`, dispatching `TOOL_FUNCS` until the model stops requesting tools. Conversation continuity comes from `memory.recent_turns(chat_id)`, not a checkpointed inner graph.
 
@@ -692,7 +694,7 @@ git commit -m "feat: turn context + plain async tools (web/recall/image/vision) 
 - Produces: `async def agent_node(state: GraphState) -> dict` returning `{"raw_result": str|None, "found_image_url": str|None}` on success, or `{"raw_result": None, "agent_error": str}` on exception (never raises into the reply path).
 - Note: no `evict_graph` on this branch — `/forget` (Task 13) is a Postgres wipe only; drop the `hermes_node.evict_graph` reference there.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_agent_loop.py`:
 ```python
@@ -750,12 +752,12 @@ async def test_agent_node_never_raises():
     assert out["raw_result"] is None and "boom" in out["agent_error"]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_agent_loop.py -v`
 Expected: FAIL — `bot.nodes.agent` not defined.
 
-- [ ] **Step 3: Write the loop**
+- [x] **Step 3: Write the loop**
 
 `bot/nodes/agent.py`:
 ```python
@@ -799,12 +801,12 @@ async def agent_node(state) -> dict:
 
 Add `agent_max_iterations: int = 90` to `bot/config.py` (Task 4) — O5 default. (If Task 4 is already committed, add it as a one-line config edit here and note it in the commit.)
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_agent_loop.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/nodes/agent.py tests/unit/test_agent_loop.py bot/config.py
@@ -815,7 +817,7 @@ git commit -m "feat: hand-rolled DeepSeek tool loop agent node (fallback branch)
 
 ---
 
-### Task 8: `load_memory` node + persona assembly
+### Task 8: `load_memory` node + persona assembly ✅ DONE (commit `bc498d7`)
 
 **Files:**
 - Create: `bot/nodes/load_memory.py`, `bot/persona.py`
@@ -826,7 +828,7 @@ git commit -m "feat: hand-rolled DeepSeek tool loop agent node (fallback branch)
 - Produces: `async def load_memory(state) -> dict` returning `{"profile": dict, "memories": list[str]}`.
 - Produces: `def build_system_prompt(profile: dict, memories: list[str]) -> str`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_persona.py`:
 ```python
@@ -854,21 +856,21 @@ async def test_load_memory_merges_profile_and_memories():
     assert out == {"profile": {"name": "Sam"}, "memories": ["m1", "m2"]}
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_load_memory.py tests/unit/test_persona.py -v`
 Expected: FAIL — modules not defined.
 
-- [ ] **Step 3: Write persona builder and load_memory**
+- [x] **Step 3: Write persona builder and load_memory**
 
 `bot/persona.py` — assemble: persona voice preamble, the user's known name/preferences/tone/running summary, the top-K memories, and explicit instructions: never mention tools/lookups/reasoning; no "As an AI" hedging; no markdown-heavy formatting; restyle facts faithfully (never drop or invent). `bot/nodes/load_memory.py` — call `get_profile(chat_id)` and `search_memories(chat_id, user_text)`, return the merged dict.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_load_memory.py tests/unit/test_persona.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/nodes/load_memory.py bot/persona.py tests/unit/test_load_memory.py tests/unit/test_persona.py
@@ -879,7 +881,7 @@ git commit -m "feat: load_memory node and persona system-prompt builder"
 
 ---
 
-### Task 9: `compose_persona` node (the speak call)
+### Task 9: `compose_persona` node (the speak call) ✅ DONE (commit `2ab676c`; review fixes in `0bcc162`, `7ad4033`)
 
 **Files:**
 - Create: `bot/nodes/compose_persona.py`
@@ -890,7 +892,7 @@ git commit -m "feat: load_memory node and persona system-prompt builder"
 - Produces: `async def compose_persona(state) -> dict` returning `{"reply": {"text": str, "voice": bool, "image_url": str | None}}`.
 - **Rule:** `image_url` is copied from `state["found_image_url"]` (never parsed from model text). If `agent_error` set or `raw_result` empty → in-character "couldn't pull that up right now" line.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_compose_persona.py`:
 ```python
@@ -923,21 +925,21 @@ async def test_graceful_fallback_on_agent_error():
     assert out["reply"]["image_url"] is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_compose_persona.py -v`
 Expected: FAIL — module not defined.
 
-- [ ] **Step 3: Write the node**
+- [x] **Step 3: Write the node**
 
 One `llm.chat` call (no `tools`): messages = `[{"role":"system", build_system_prompt(...)}, {"role":"user", user_text}, {"role":"assistant"/context, raw_result-as-facts}]`. When `agent_error` or empty `raw_result`, feed a "you couldn't retrieve it, apologize in character" instruction instead. Post-process: strip markdown artifacts/tool jargon. `voice` decided here (the persona chooses). `image_url = state.get("found_image_url")`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_compose_persona.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/nodes/compose_persona.py tests/unit/test_compose_persona.py
@@ -948,7 +950,7 @@ git commit -m "feat: compose_persona speak call — sole user-facing text produc
 
 ---
 
-### Task 10: `persist_memory` (post-send background)
+### Task 10: `persist_memory` (post-send background) ✅ DONE (commit `8cd768d`; fix in `22d69f6`)
 
 **Files:**
 - Create: `bot/nodes/persist_memory.py`
@@ -958,7 +960,7 @@ git commit -m "feat: compose_persona speak call — sole user-facing text produc
 - Consumes: `bot.llm.chat`, `bot.memory.upsert_memories`, `bot.memory.update_profile_summary`.
 - Produces: `async def persist_memory(user_id: int, user_text: str, reply_text: str, recent: list[dict]) -> None` — plain async function (NOT a graph node, per O10). Errors logged, never raised.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/unit/test_persist_memory.py`:
 ```python
@@ -981,21 +983,21 @@ async def test_errors_are_swallowed():
         await persist_memory(1, "hi", "hey", [])  # must not raise
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/unit/test_persist_memory.py -v`
 Expected: FAIL — module not defined.
 
-- [ ] **Step 3: Write the function**
+- [x] **Step 3: Write the function**
 
 One cheap `llm.chat` extraction call → parse a JSON list of durable facts → `memory.upsert_memories(user_id, facts)` when non-empty; refresh the running summary via `memory.update_profile_summary` when warranted. Wrap the whole body in try/except that logs and returns.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/unit/test_persist_memory.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/nodes/persist_memory.py tests/unit/test_persist_memory.py
@@ -1006,7 +1008,7 @@ git commit -m "feat: persist_memory post-send fact extraction (off the reply pat
 
 ---
 
-### Task 11: Outer graph wiring
+### Task 11: Outer graph wiring ✅ DONE (commit `406401c`; checkpointer setup fix in `116faab`)
 
 **Files:**
 - Create: `bot/state.py`, `bot/graph.py`
@@ -1017,7 +1019,7 @@ git commit -m "feat: persist_memory post-send fact extraction (off the reply pat
 - Produces: `GraphState` TypedDict; `def build_graph(checkpointer=None)` returning a compiled graph with edges `load_memory → agent → compose_persona → END`.
 - `GraphState` keys: `chat_id: int`, `user_text: str`, `image_bytes: bytes | None`, `profile: dict`, `memories: list[str]`, `raw_result: str | None`, `found_image_url: str | None`, `agent_error: str | None`, `reply: dict`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/unit/test_graph.py` (stub all three nodes; assert only `compose_persona`'s reply survives and no tool string leaks):
 ```python
@@ -1040,21 +1042,21 @@ async def test_only_compose_persona_output_reaches_state():
     assert "rawJSON" not in out["reply"]["text"]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/unit/test_graph.py -v`
 Expected: FAIL — module not defined.
 
-- [ ] **Step 3: Write state and graph wiring**
+- [x] **Step 3: Write state and graph wiring**
 
 `bot/state.py` — the `GraphState` TypedDict above. `bot/graph.py` — `StateGraph(GraphState)`, add nodes `load_memory`/`agent`/`compose_persona`, edges `START → load_memory → agent → compose_persona → END`, compile with `langgraph-checkpoint-postgres` on `settings.database_url` when a checkpointer isn't injected. Reference wiring style: `agentBerry/orchestrator/graph.py` node-registration + checkpointer pattern (do NOT copy its delegate/escalate logic). Import the node functions as module-level names in `bot/graph.py` (`from bot.nodes.load_memory import load_memory`, `from bot.nodes.agent import agent_node`, `from bot.nodes.compose_persona import compose_persona`) so tests can patch them as `bot.graph.<name>`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/unit/test_graph.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/state.py bot/graph.py tests/unit/test_graph.py
@@ -1065,7 +1067,7 @@ git commit -m "feat: outer graph wiring (load_memory→agent→compose_persona) 
 
 ---
 
-### Task 12: TTS + media helpers
+### Task 12: TTS + media helpers ✅ DONE (commit `932125e`)
 
 **Files:**
 - Create: `bot/tts.py`, `bot/media.py`
@@ -1075,7 +1077,7 @@ git commit -m "feat: outer graph wiring (load_memory→agent→compose_persona) 
 - Produces: `bot.tts.synth(text: str) -> bytes` (OpenAI TTS, OGG/Opus for `sendVoice`).
 - Produces: `bot.media.photo_to_bytes(photo) -> bytes` (download largest size), `bot.media.to_voice(audio_bytes)`, and photo-send helpers used by ingress.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_tts.py`:
 ```python
@@ -1107,21 +1109,21 @@ async def test_photo_to_bytes_downloads_largest():
     largest.get_file.assert_awaited_once()
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_tts.py tests/unit/test_media.py -v`
 Expected: FAIL — modules not defined.
 
-- [ ] **Step 3: Write tts and media**
+- [x] **Step 3: Write tts and media**
 
 `bot/tts.py` — `POST https://api.openai.com/v1/audio/speech` with model from config, `response_format="opus"`, returns `r.content`. `bot/media.py` — `photo_to_bytes` picks the max-`file_size` PhotoSize, `get_file()`, `download_as_bytearray()`; `to_voice` wraps bytes into a `telegram.InputFile` for `sendVoice`; photo-send helper for `sendPhoto`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_tts.py tests/unit/test_media.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/tts.py bot/media.py tests/unit/test_tts.py tests/unit/test_media.py
@@ -1132,7 +1134,7 @@ git commit -m "feat: OpenAI TTS voice-out and telegram media helpers"
 
 ---
 
-### Task 13: Ingress — handlers, send-guard, `/forget`, pacing
+### Task 13: Ingress — handlers, send-guard, `/forget`, pacing ✅ DONE (commit `d5caebf`; fix in `8892804`)
 
 **Files:**
 - Create: `bot/ingress.py` (with `__main__`)
@@ -1142,7 +1144,7 @@ git commit -m "feat: OpenAI TTS voice-out and telegram media helpers"
 - Consumes: `bot.graph.build_graph`, `bot.nodes.persist_memory.persist_memory`, `bot.media.*`, `bot.tts.synth`, `bot.memory.forget_user`.
 - Produces: `bot.ingress.send_guard(text: str) -> bool` (True = safe to send), `on_message`, `forget_command`, `start_command`, `main()`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_send_guard.py`:
 ```python
@@ -1175,21 +1177,21 @@ async def test_persist_memory_launched_after_send():
     pm.assert_awaited()  # persist ran, off the reply path
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_send_guard.py tests/unit/test_ingress.py -v`
 Expected: FAIL — module/attrs not defined.
 
-- [ ] **Step 3: Write ingress**
+- [x] **Step 3: Write ingress**
 
 `python-telegram-bot` async app (polling; DM-only — ignore group updates). `send_guard`: reject empty; reject text that parses as a JSON object/array or matches a raw-tool pattern (e.g. `^\s*[\[{]`, `TOOL_CALL:`, `TOOL:`), but do NOT reject prose that merely contains braces. `on_message`: fire `typing` chat action (re-fire every ~4s while the graph runs); photo → `media.photo_to_bytes` → `state["image_bytes"]`; build state; `_graph.ainvoke` (Task 11); render `reply` — text through `send_guard` first (on fail, log + replace with an in-character fallback line), optional pacing delay (`PACING_*`) + chunking into 1–2 messages, `voice` → `tts.synth` → `sendVoice`, `image_url` → `sendPhoto`; then `asyncio.create_task(persist_memory(...))`. `/forget`: `memory.forget_user(chat_id)` + in-character confirmation (fallback branch: no per-user Hermes home or cached graph to evict — Postgres wipe is the whole story). `/start`: brief in-character intro. Never send error traces. Provide the `_fake_text_update` test helper.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_send_guard.py tests/unit/test_ingress.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bot/ingress.py tests/unit/test_send_guard.py tests/unit/test_ingress.py
@@ -1200,7 +1202,7 @@ git commit -m "feat: ingress — handlers, send-guard backstop, /forget, pacing"
 
 ---
 
-### Task 14: Dockerfile, compose + k8s manifests
+### Task 14: Dockerfile, compose + k8s manifests ✅ DONE (commit `24a3cc1`)
 
 **Files:**
 - Create: `Dockerfile`, `docker-compose.yml`, `deploy/bot-deployment.yaml`, `deploy/postgres-statefulset.yaml`, `deploy/secrets.example.yaml`
@@ -1209,7 +1211,7 @@ git commit -m "feat: ingress — handlers, send-guard backstop, /forget, pacing"
 **Interfaces:**
 - Produces: a container that runs `python -m bot.migrate && python -m bot.ingress`; a compose stack (`bot` + `db`) and k8s manifests (bot Deployment single-replica — stateless, no PVC on the fallback branch; Postgres StatefulSet + PVC + ClusterIP).
 
-- [ ] **Step 1: Write the failing smoke test**
+- [x] **Step 1: Write the failing smoke test**
 
 `tests/integration/test_compose_smoke.py`:
 ```python
@@ -1222,21 +1224,21 @@ def test_compose_config_is_valid():
     assert "pgvector/pgvector:pg16" in r.stdout
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/integration/test_compose_smoke.py -v`
 Expected: FAIL — no `docker-compose.yml`.
 
-- [ ] **Step 3: Write the container + orchestration files**
+- [x] **Step 3: Write the container + orchestration files**
 
 `Dockerfile`: `python:3.12-slim`, install the package, `ENTRYPOINT ["sh","-c","python -m bot.migrate && python -m bot.ingress"]`. `docker-compose.yml`: `bot` (build `.`, env from `.env`) + `db` (`pgvector/pgvector:pg16`, named volume, healthcheck; `bot depends_on db healthy`); `DATABASE_URL` points at `db`. `bot/migrate.py` gains a `python -m bot.migrate` entrypoint (`if __name__ == "__main__": asyncio.run(apply_migrations(settings.database_url))`). `deploy/`: bot Deployment (single replica, stateless — env from Secret, no PVC) + Postgres StatefulSet (`pgvector/pgvector:pg16`, own PVC, ClusterIP Service). The bot holds no per-user disk state on the fallback branch; all durable state is in Postgres.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/integration/test_compose_smoke.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Dockerfile docker-compose.yml deploy tests/integration/test_compose_smoke.py bot/migrate.py
@@ -1247,7 +1249,7 @@ git commit -m "feat: containerization — Dockerfile, compose, k8s manifests, mi
 
 ---
 
-### Task 15: Full-graph integration + faithfulness + multimodal tests
+### Task 15: Full-graph integration + faithfulness + multimodal tests ✅ DONE (commits `6086bc1`, `30c8a34`, `2d4a54b`; live-API stub fix in `3c598f9`)
 
 **Files:**
 - Create: `tests/integration/test_full_graph.py`, `tests/integration/test_faithfulness.py`, `tests/integration/test_multimodal.py`
@@ -1255,27 +1257,27 @@ git commit -m "feat: containerization — Dockerfile, compose, k8s manifests, mi
 **Interfaces:**
 - Consumes: everything above; testcontainers Postgres; stubbed `llm` (`chat`/`chat_with_tools`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/integration/test_full_graph.py` — real Postgres, stubbed `llm.chat_with_tools` (agent loop) + stubbed `llm.chat` (compose); assert only `compose_persona` output reaches the send sink and no tool string leaks; and a cross-session memory test (turn 1 states a fact, `persist_memory` writes it, turn 2 recalls it).
 `tests/integration/test_faithfulness.py` — `compose_persona` preserves facts in `raw_result` (feed `raw_result="the capital is Lima"`, stub `llm.chat` to echo-with-restyle, assert "Lima" survives; assert it doesn't invent a different capital).
 `tests/integration/test_multimodal.py` — photo → `image_bytes` in state → turn context → `vision_analyze` returns a description into the agent loop; voice-flagged reply → `tts.synth` + `sendVoice`; `image_search` sets `found_image_url` → `sendPhoto`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/integration -v`
 Expected: FAIL initially (assertions not yet satisfied / helpers missing).
 
-- [ ] **Step 3: Make them pass**
+- [x] **Step 3: Make them pass**
 
 Wire the test doubles and any small production gaps they expose (e.g. a missing `voice`/`image_url` passthrough). Do NOT weaken the assertions — fix the code.
 
-- [ ] **Step 4: Run the whole suite**
+- [x] **Step 4: Run the whole suite**
 
 Run: `pytest -v`
 Expected: PASS (unit + integration).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/integration
@@ -1286,7 +1288,7 @@ git commit -m "test: full-graph, faithfulness, and multimodal integration covera
 
 ---
 
-### Task 16: README
+### Task 16: README ✅ DONE (commit `d370e8d`; checkpointer/chunking fix in `d69ff6c`)
 
 **Files:**
 - Create: `README.md`
@@ -1294,15 +1296,15 @@ git commit -m "test: full-graph, faithfulness, and multimodal integration covera
 **Interfaces:**
 - Produces: setup/run/test/deploy docs. (Per user's global rule: document features in the README.)
 
-- [ ] **Step 1: Write the README**
+- [x] **Step 1: Write the README**
 
 Sections: overview + the two-call silence guarantee; prereqs (env vars from Task 4, Postgres+pgvector); local run (`docker compose up`); `langstage-hermes verify`; test commands (`pytest`, note `-m slow` for the compose smoke test); deployment summary (Task 14); the v2 deferred list (actions tool, voice-in/STT, image generation, group chats); and a note on the O12 fallback branch recorded in `docs/spike-notes.md`.
 
-- [ ] **Step 2: Verify the documented commands run**
+- [x] **Step 2: Verify the documented commands run**
 
 Run each command block in the README (env-setup, `pytest`, `docker compose config`) and confirm it matches actual behavior.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add README.md
