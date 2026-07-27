@@ -46,7 +46,8 @@ async def test_full_graph_only_compose_persona_output_reaches_sink(pg_url):
     with patch("bot.nodes.agent.llm.chat_with_tools",
                new=AsyncMock(return_value=_msg(content=leaky_raw_result))), \
          patch("bot.nodes.compose_persona.llm.chat",
-               new=AsyncMock(return_value=persona_reply)):
+               new=AsyncMock(return_value=persona_reply)), \
+         patch("bot.memory.llm.embed", new=AsyncMock(side_effect=_fake_embed)):
         graph = build_graph()
         out = await graph.ainvoke({"chat_id": 501, "user_text": "what's the weather like?",
                                    "image_bytes": None})
@@ -78,7 +79,8 @@ async def test_cross_session_memory_fact_persists_and_is_recalled(pg_url):
     with patch("bot.nodes.agent.llm.chat_with_tools",
                new=AsyncMock(return_value=_msg(content="Got it, I'll remember that!"))), \
          patch("bot.nodes.compose_persona.llm.chat",
-               new=AsyncMock(return_value="Got it, I'll remember that!")):
+               new=AsyncMock(return_value="Got it, I'll remember that!")), \
+         patch("bot.memory.llm.embed", new=AsyncMock(side_effect=_fake_embed)):
         graph = build_graph()
         user_text_1 = "My favorite color is teal."
         out1 = await graph.ainvoke({"chat_id": chat_id, "user_text": user_text_1,
