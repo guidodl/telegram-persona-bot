@@ -3,5 +3,33 @@ name = "telegram-persona-bot"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-  "langstage-hermes[openai]==0.4.25",
+  "python-telegram-bot[ext]>=21",
+  "langgraph>=0.2",
+  "langgraph-checkpoint-postgres>=1.0",
+  "psycopg[binary]>=3.1",
+  "sqlalchemy[asyncio]>=2.0",
+  "pgvector>=0.2",
+  "httpx>=0.27",
+  "pydantic-settings>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "testcontainers[postgres]>=4",
+  "respx>=0.21",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["bot*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+  "slow: marks slow tests (deselect with '-m \"not slow\"')",
 ]

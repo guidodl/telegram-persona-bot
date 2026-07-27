@@ -1,0 +1,287 @@
+import asyncio
+from unittest.mock import AsyncMock, patch
+import pytest
+from telegram.constants import ChatType
+from langgraph.checkpoint.memory import InMemorySaver
+from bot import ingress
+from bot.graph import build_graph
+
+async def test_persist_memory_launched_after_send():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()) as pm, \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)  # test helper
+        await ingress.on_message(update, ctx)
+        # allow the created task to schedule
+    pm.assert_awaited()  # persist ran, off the reply path
+
+
+async def test_recent_turns_fetched_and_passed_to_persist_memory():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()) as pm, \
+         patch("bot.ingress.memory.recent_turns",
+               new=AsyncMock(return_value=[{"role": "user", "content": "earlier"}])) as rt, \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    rt.assert_awaited_once_with(5, 10)
+    pm.assert_awaited_once_with(5, "hello", "hi", [{"role": "user", "content": "earlier"}])
+
+
+async def test_log_turn_called_for_user_and_assistant_after_reply():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()) as lt, \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi there", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    lt.assert_any_await(5, "user", "hello")
+    lt.assert_any_await(5, "assistant", "hi there")
+    assert lt.await_count == 2
+
+
+async def test_post_send_memory_work_happens_after_reply_and_never_raises():
+    call_order = []
+
+    async def recording_reply_text(*args, **kwargs):
+        call_order.append("reply_text")
+
+    async def recording_recent_turns(*args, **kwargs):
+        call_order.append("recent_turns")
+        raise RuntimeError("db down")
+
+    async def recording_log_turn(*args, **kwargs):
+        call_order.append("log_turn")
+        raise RuntimeError("db down")
+
+    with patch("bot.ingress.persist_memory", new=AsyncMock(side_effect=RuntimeError("db down"))), \
+         patch("bot.ingress.memory.recent_turns", new=recording_recent_turns), \
+         patch("bot.ingress.memory.log_turn", new=recording_log_turn), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        update.effective_message.reply_text = AsyncMock(side_effect=recording_reply_text)
+        await ingress.on_message(update, ctx)  # must not raise despite the memory-side failures
+    assert call_order[0] == "reply_text"
+    assert "recent_turns" in call_order
+    assert call_order.index("reply_text") < call_order.index("recent_turns")
+
+
+async def test_group_chat_ignored():
+    with patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock()
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        update.effective_chat.type = ChatType.GROUP
+        await ingress.on_message(update, ctx)
+    g.ainvoke.assert_not_awaited()
+
+
+async def test_raw_tool_leak_replaced_with_fallback():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "TOOL_CALL: web_lookup(x)",
+                                                       "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    sent = [c.args[0] for c in update.effective_message.reply_text.call_args_list]
+    assert all("TOOL_CALL" not in s for s in sent)
+    assert ingress.SEND_GUARD_FALLBACK in sent
+
+
+async def test_graph_error_sends_fallback_not_traceback():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    update.effective_message.reply_text.assert_awaited_once_with(ingress.SEND_GUARD_FALLBACK)
+
+
+async def test_voice_reply_sends_voice():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g, \
+         patch("bot.ingress.tts.synth", new=AsyncMock(return_value=b"audio")), \
+         patch("bot.ingress.media.to_voice", return_value="VOICE_FILE"):
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi there",
+                                                       "voice": True, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    ctx.bot.send_voice.assert_awaited_once_with(chat_id=5, voice="VOICE_FILE")
+
+
+async def test_image_url_reply_sends_photo():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "here you go", "voice": False,
+                                                       "image_url": "http://img/1.jpg"}})
+        update, ctx = ingress._fake_text_update("hello", chat_id=5)
+        await ingress.on_message(update, ctx)
+    ctx.bot.send_photo.assert_awaited_once_with(chat_id=5, photo="http://img/1.jpg")
+
+
+async def test_photo_message_extracts_image_bytes():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g, \
+         patch("bot.ingress.media.photo_to_bytes", new=AsyncMock(return_value=b"imgbytes")):
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "nice pic!", "voice": False,
+                                                       "image_url": None}})
+        update, ctx = ingress._fake_text_update("look", chat_id=5)
+        update.effective_message.photo = ["some_photo_size"]
+        await ingress.on_message(update, ctx)
+    assert g.ainvoke.call_args.args[0]["image_bytes"] == b"imgbytes"
+
+
+async def test_forget_command_wipes_and_confirms():
+    with patch("bot.ingress.forget_user", new=AsyncMock()) as fu:
+        update, ctx = ingress._fake_text_update("/forget", chat_id=7)
+        await ingress.forget_command(update, ctx)
+    fu.assert_awaited_once_with(7)
+    update.effective_message.reply_text.assert_awaited_once_with(ingress.FORGET_MESSAGE)
+
+
+async def test_forget_command_error_swallowed():
+    with patch("bot.ingress.forget_user", new=AsyncMock(side_effect=RuntimeError("db down"))):
+        update, ctx = ingress._fake_text_update("/forget", chat_id=7)
+        await ingress.forget_command(update, ctx)  # must not raise
+    update.effective_message.reply_text.assert_awaited_once_with(ingress.SEND_GUARD_FALLBACK)
+
+
+async def test_start_command_sends_intro():
+    update, ctx = ingress._fake_text_update("/start", chat_id=9)
+    await ingress.start_command(update, ctx)
+    update.effective_message.reply_text.assert_awaited_once_with(ingress.START_MESSAGE)
+
+
+# --- Finding 1: real-checkpointer regression (missing thread_id) ----------
+#
+# Bug: on_message called _graph.ainvoke(state) with no config. Any graph
+# built with a checkpointer (as main() does against postgres) raises
+# ValueError from LangGraph because no configurable.thread_id was supplied.
+# on_message's broad except swallowed that and always sent the fallback —
+# every real DM degraded to SEND_GUARD_FALLBACK. These tests build a graph
+# with a real (in-memory) checkpointer, matching production shape, so the
+# missing-config bug is actually exercised rather than masked by a mocked
+# _graph.
+
+async def test_graph_with_checkpointer_requires_thread_id():
+    graph = build_graph(checkpointer=InMemorySaver())
+    with pytest.raises(ValueError):
+        await graph.ainvoke({"chat_id": 1, "user_text": "hi", "image_bytes": None})
+
+
+async def test_graph_with_checkpointer_and_thread_id_succeeds():
+    with patch("bot.graph.load_memory",
+               new=AsyncMock(return_value={"profile": {}, "memories": []})), \
+         patch("bot.graph.agent_node",
+               new=AsyncMock(return_value={"raw_result": "hi", "found_image_url": None})), \
+         patch("bot.graph.compose_persona",
+               new=AsyncMock(return_value={"reply": {"text": "hello", "voice": False,
+                                                      "image_url": None}})):
+        graph = build_graph(checkpointer=InMemorySaver())
+        out = await graph.ainvoke({"chat_id": 1, "user_text": "hi", "image_bytes": None},
+                                   config={"configurable": {"thread_id": "1"}})
+    assert out["reply"]["text"] == "hello"
+
+
+async def test_on_message_with_real_checkpointer_sends_reply_not_fallback():
+    """Drives ingress.on_message end-to-end with _graph set to a
+    real-checkpointer graph (nodes stubbed, as other tests do via
+    bot.graph patches). Against the pre-fix ainvoke(state) with no config,
+    this raises inside on_message, gets caught, and sends
+    SEND_GUARD_FALLBACK instead of the real reply — proving the bug was
+    invisible to the mocked-_graph tests above. With the fix
+    (ainvoke(state, config={"configurable": {"thread_id": ...}})) the real
+    reply goes out."""
+    old_graph = ingress._graph
+    try:
+        with patch("bot.graph.load_memory",
+                   new=AsyncMock(return_value={"profile": {}, "memories": []})), \
+             patch("bot.graph.agent_node",
+                   new=AsyncMock(return_value={"raw_result": "hi", "found_image_url": None})), \
+             patch("bot.graph.compose_persona",
+                   new=AsyncMock(return_value={"reply": {"text": "hello there", "voice": False,
+                                                          "image_url": None}})), \
+             patch("bot.ingress.persist_memory", new=AsyncMock()), \
+             patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+             patch("bot.ingress.memory.log_turn", new=AsyncMock()):
+            ingress._graph = build_graph(checkpointer=InMemorySaver())
+            update, ctx = ingress._fake_text_update("hello", chat_id=42)
+            await ingress.on_message(update, ctx)
+    finally:
+        ingress._graph = old_graph
+    sent = [c.args[0] for c in update.effective_message.reply_text.call_args_list]
+    assert sent == ["hello there"]
+    assert ingress.SEND_GUARD_FALLBACK not in sent
+
+
+# --- Finding 2: concurrent_updates / per-task turn_context isolation ------
+
+async def test_concurrent_messages_from_different_users_do_not_cross_talk():
+    """Fires two on_message calls concurrently (as concurrent_updates(True)
+    now allows) for different chat_ids/photos and asserts each reply
+    reflects only its own turn's user_id and image_bytes — no bleed through
+    the turn_context ContextVar or shared graph."""
+    from bot.turn_context import turn_context
+
+    async def fake_chat_with_tools(messages, tools):
+        ctx = turn_context.get()
+        await asyncio.sleep(0.01)  # force interleaving between the two turns
+        return {"content": f"uid={ctx['user_id']}|img={ctx['image_bytes']}", "tool_calls": None}
+
+    async def fake_chat(messages):
+        for m in messages:
+            content = m.get("content")
+            if isinstance(content, str) and content.startswith("Facts to speak from:"):
+                return content.split("Facts to speak from:\n", 1)[1].split("\n\n")[0]
+        return "no facts"
+
+    async def fake_photo_to_bytes(photo_sizes):
+        return photo_sizes[0].encode()
+
+    with patch("bot.graph.load_memory",
+               new=AsyncMock(return_value={"profile": {}, "memories": []})), \
+         patch("bot.nodes.agent.llm.chat_with_tools", new=fake_chat_with_tools), \
+         patch("bot.nodes.compose_persona.llm.chat", new=fake_chat), \
+         patch("bot.ingress.media.photo_to_bytes", new=fake_photo_to_bytes), \
+         patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph", build_graph()):
+        update_a, ctx_a = ingress._fake_text_update("hi from A", chat_id=101)
+        update_a.effective_message.photo = ["imgA"]
+        update_b, ctx_b = ingress._fake_text_update("hi from B", chat_id=202)
+        update_b.effective_message.photo = ["imgB"]
+
+        await asyncio.gather(
+            ingress.on_message(update_a, ctx_a),
+            ingress.on_message(update_b, ctx_b),
+        )
+
+    sent_a = update_a.effective_message.reply_text.call_args_list[0].args[0]
+    sent_b = update_b.effective_message.reply_text.call_args_list[0].args[0]
+    assert "uid=101" in sent_a and "img=b'imgA'" in sent_a
+    assert "uid=202" in sent_b and "img=b'imgB'" in sent_b
+    assert "202" not in sent_a and "imgB" not in sent_a
+    assert "101" not in sent_b and "imgA" not in sent_b
+
+
+# --- Finding 3: _chunk_reply split-point edge case -------------------------
+
+def test_chunk_reply_spaceless_long_string_splits_sanely():
+    """No space before the midpoint used to make rfind() return -1, and
+    `-1 or midpoint` evaluated truthy -1 (since -1 is falsy... actually
+    -1 is truthy in Python), producing text[:-1] / text[-1:] — an N-1 char
+    chunk plus a single stray trailing character. The fix treats a
+    not-found rfind (-1) the same as one at position 0: fall back to the
+    midpoint."""
+    text = "a" * 4000  # exceeds the 3500-char limit, no spaces anywhere
+    chunks = ingress._chunk_reply(text)
+    assert len(chunks) == 2
+    assert chunks[0] == "a" * 2000
+    assert chunks[1] == "a" * 2000
+    assert chunks[0] + chunks[1] == text
+    assert len(chunks[1]) > 1  # not a stray single trailing character
