@@ -59,7 +59,11 @@ the `Hermes` sidecar over SSE (`bot/hermes_client.py`), and reads back any
 `mcp_tools/tools.py` and run inside that sidecar process, not this one.
 `langstage-hermes` (the library) is still not a runtime dependency; all
 durable state (profile, memories, conversation turns) lives in Postgres, and
-`/forget` deletes those rows.
+`/forget` deletes those rows. Because Hermes (not this process) decides tool
+arguments, `recall`, `image_search`, and `vision_analyze` guard their
+per-turn store lookups against a missing/wrong `turn_id` and fall back to
+their existing neutral no-data strings instead of raising, so a Hermes
+mistake can't surface as backstage error talk in the final reply.
 
 ### Personas
 

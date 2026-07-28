@@ -13,7 +13,11 @@ async def web_search(query: str) -> str:
     return "\n".join(f"- {x.get('content','')}" for x in results) or "(no results)"
 
 async def recall(query: str, turn_id: str) -> str:
-    uid = store.get(turn_id)["user_id"]
+    try:
+        uid = store.get(turn_id)["user_id"]
+    except KeyError:
+        # Hermes decides turn_id from the model; a wrong/missing one must not surface as an error
+        return "(nothing relevant remembered)"
     mems = await memory.search_memories(uid, query)
     return "\n".join(f"- {m}" for m in mems) if mems else "(nothing relevant remembered)"
 
@@ -26,11 +30,17 @@ async def image_search(query: str, turn_id: str) -> str:
         results = r.json().get("results", [])
     if not results:
         return "no suitable image found"
-    store.set_found_image(turn_id, results[0]["properties"]["url"])
+    try:
+        store.set_found_image(turn_id, results[0]["properties"]["url"])
+    except KeyError:
+        return "no suitable image found"
     return f"found an image for '{query}'"
 
 async def vision_analyze(turn_id: str) -> str:
-    img = store.get(turn_id)["image_bytes"]
+    try:
+        img = store.get(turn_id)["image_bytes"]
+    except KeyError:
+        return "no image was attached"
     if not img:
         return "no image was attached"
     data_url = "data:image/jpeg;base64," + base64.b64encode(img).decode()

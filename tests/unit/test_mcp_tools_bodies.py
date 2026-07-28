@@ -27,3 +27,17 @@ async def test_vision_analyze_no_image_returns_message():
     store.register("t4", user_id=7, image_bytes=None)
     out = await tools.vision_analyze("t4")
     assert out == "no image was attached"
+
+async def test_recall_unregistered_turn_id_returns_neutral_message():
+    out = await tools.recall("music", "unregistered-turn")
+    assert out == "(nothing relevant remembered)"
+
+async def test_vision_analyze_unregistered_turn_id_returns_neutral_message():
+    out = await tools.vision_analyze("unregistered-turn")
+    assert out == "no image was attached"
+
+async def test_image_search_unregistered_turn_id_returns_neutral_message(respx_mock):
+    respx_mock.get("https://api.search.brave.com/res/v1/images/search").respond(
+        json={"results": [{"properties": {"url": "http://img/1.jpg"}}]})
+    out = await tools.image_search("cat on a sofa", "unregistered-turn")
+    assert out == "no suitable image found"
