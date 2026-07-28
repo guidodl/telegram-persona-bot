@@ -18,14 +18,28 @@ async def test_call_hermes_concatenates_content_ignores_progress():
     assert out == "Sofia, 24."
 
 @respx.mock
-async def test_call_hermes_threads_turn_id_as_system_message():
+async def test_call_hermes_threads_turn_id_as_system_message_and_session_header():
     captured = {}
     def _capture(request):
         import json
         captured["body"] = json.loads(request.content)
+        captured["headers"] = request.headers
         return httpx.Response(200, content=b'data: [DONE]\n\n',
                               headers={"content-type": "text/event-stream"})
     respx.post("http://hermes:8642/v1/chat/completions").mock(side_effect=_capture)
     await hermes_client.call_hermes([{"role": "user", "content": "hi"}], turn_id="t9", model=None)
     msgs = captured["body"]["messages"]
     assert any(m["role"] == "system" and "turn_id=t9" in m["content"] for m in msgs)
+    assert captured["headers"]["X-Hermes-Session-Id"] == "t9"
+
+@respx.mock
+async def test_call_hermes_sends_bearer_when_api_key_set(monkeypatch):
+    monkeypatch.setattr(hermes_client.settings, "hermes_api_key", "secret-key")
+    captured = {}
+    def _capture(request):
+        captured["headers"] = request.headers
+        return httpx.Response(200, content=b'data: [DONE]\n\n',
+                              headers={"content-type": "text/event-stream"})
+    respx.post("http://hermes:8642/v1/chat/completions").mock(side_effect=_capture)
+    await hermes_client.call_hermes([{"role": "user", "content": "hi"}], turn_id="t1", model=None)
+    assert captured["headers"]["Authorization"] == "Bearer secret-key"

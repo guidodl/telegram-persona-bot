@@ -1,10 +1,21 @@
+# Hermes-agent config, schema verified against nousresearch/hermes-agent:v2026.7.20.
+# Mount at HERMES_HOME (/opt/data/config.yaml). mcp_servers is a dict keyed by
+# server name (NOT a list); tools.include allowlists per server. Equivalent to
+# running: hermes mcp add persona_tools --url http://mcp-tools:8000/mcp
 mcp_servers:
-  - id: persona_tools
-    uri: http://mcp-tools:8000/mcp
-agent:
-  tools:
-    include: [web_search, recall, image_search, vision_analyze]
-    disabled_toolsets: [file, patch, execute_code, browser, cronjob, delegate_task, todo, skills]
-  system_prefix: >
-    Return only terse factual findings for a downstream persona layer to voice.
-    Do not narrate your process, mention tools, searches, or that you are an AI.
+  persona_tools:
+    url: http://mcp-tools:8000/mcp
+    type: http
+    enabled: true
+    tools:
+      include: [web_search, recall, image_search, vision_analyze]
+
+# Disable Hermes' own mutating/agentic built-ins so only our 4 read tools run.
+tools:
+  disabled_toolsets: [file, patch, execute_code, browser, cronjob, delegate_task, todo, skills]
+
+# Max agentic turns Hermes runs server-side before answering.
+max_turns: 6
+
+# The persona/silence instruction is NOT a config key in this image — it lives in
+# SOUL.md at HERMES_HOME. See deploy/hermes/SOUL.md (seed it to /opt/data/SOUL.md).
