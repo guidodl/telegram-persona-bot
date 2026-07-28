@@ -1,0 +1,8 @@
+# Dockerfile.mcp-tools
+FROM python:3.12-slim
+WORKDIR /app
+COPY pyproject.toml .
+RUN pip install --no-cache-dir . uvicorn
+COPY bot ./bot
+COPY mcp_tools ./mcp_tools
+CMD ["uvicorn", "mcp_tools.server:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -119,11 +119,13 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 ### Option A: Docker Compose (recommended)
 
 ```bash
-docker compose up
+docker compose up --build
 ```
 
-This builds the bot image, starts a `pgvector/pgvector:pg16` Postgres
-container, waits for its healthcheck, then starts the bot. The container
+This builds the `bot` and `mcp-tools` images, starts a
+`pgvector/pgvector:pg16` Postgres container, waits for its healthcheck,
+starts `mcp-tools` (the tool-execution sidecar) and `hermes` (the
+tool-calling agent sidecar), then starts the bot. The bot container
 entrypoint runs migrations before the bot starts:
 
 ```
@@ -212,9 +214,30 @@ TESTCONTAINERS_RYUK_DISABLED=true .venv/bin/pytest -q
 - **Dockerfile**: installs the package (`pip install .`), copies `bot/` and
   `migrations/`, and entrypoints `python -m bot.migrate && python -m bot.ingress`
   — migrations always run before the bot starts polling.
-- **docker-compose.yml**: two services — `db` (`pgvector/pgvector:pg16`,
-  with a `pg_isready` healthcheck) and `bot` (built from the Dockerfile,
-  waits on `db`'s healthcheck, reads secrets from `.env`).
+- **Dockerfile.mcp-tools**: installs the package plus `uvicorn`, copies
+  `bot/` (the `recall` tool imports `bot.memory`) and `mcp_tools/`, and runs
+  `uvicorn mcp_tools.server:app --host 0.0.0.0 --port 8000`.
+- **docker-compose.yml**: four services —
+  - `db` (`pgvector/pgvector:pg16`, with a `pg_isready` healthcheck).
+  - `mcp-tools` (built from `Dockerfile.mcp-tools`, waits on `db`'s
+    healthcheck, needs `DATABASE_URL` for its `recall` tool).
+  - `hermes` (`nousresearch/hermes-agent:0.17.0` — placeholder tag; pinning
+    an arm64-verified image for the Pi is a later task), mounts
+    `deploy/hermes/config.yaml` read-only at `/etc/hermes/config.yaml` and
+    waits on `mcp-tools`.
+  - `bot` (built from the Dockerfile, waits on `db`'s healthcheck and on
+    `hermes` starting, reads secrets from `.env`, gets `HERMES_URL` and
+    `MCP_TOOLS_URL` pointing at the other two sidecars).
+
+  Bring the whole stack up with `docker compose up --build`.
+- **deploy/hermes/config.yaml**: Hermes's own config — registers the
+  `mcp-tools` MCP endpoint (`persona_tools`), restricts the agent to the
+  four tools (`web_search`, `recall`, `image_search`, `vision_analyze`),
+  disables Hermes's mutating built-in toolsets (file, patch, execute_code,
+  browser, cronjob, delegate_task, todo, skills), and sets a `system_prefix`
+  instructing terse, tool-silent output for the silence guarantee. The exact
+  key names and the `turn_id`-correlation mechanism are a best guess at
+  Hermes's schema, pending verification against the real deployed image.
 - **Kubernetes** (`deploy/`):
   - `deploy/bot-deployment.yaml` — a stateless `Deployment` (1 replica) for
     the bot, pulling all env vars from a `telegram-persona-bot-secrets`

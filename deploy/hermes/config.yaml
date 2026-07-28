@@ -1,0 +1,10 @@
+mcp_servers:
+  - id: persona_tools
+    uri: http://mcp-tools:8000/mcp
+agent:
+  tools:
+    include: [web_search, recall, image_search, vision_analyze]
+    disabled_toolsets: [file, patch, execute_code, browser, cronjob, delegate_task, todo, skills]
+  system_prefix: >
+    Return only terse factual findings for a downstream persona layer to voice.
+    Do not narrate your process, mention tools, searches, or that you are an AI.
