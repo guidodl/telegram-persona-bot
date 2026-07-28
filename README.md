@@ -52,9 +52,11 @@ global-lock/monkeypatch workarounds the plan explicitly forbids. The repo
 first ran a **fallback branch** (a hand-rolled tool loop in
 `bot/nodes/agent.py` over `bot/tools.py`), later replaced by the current
 **sidecar architecture**: `bot/nodes/agent.py` registers each turn
-(`user_id`, optional photo bytes) with the `mcp-tools` HTTP sidecar, calls
-the `Hermes` sidecar over SSE (`bot/hermes_client.py`), and reads back any
-`found_image_url` the tool calls produced. The tool bodies
+(`user_id`, optional photo bytes) with the `mcp-tools` HTTP sidecar, then
+calls the `Hermes` sidecar's OpenAI-compatible `POST /v1/chat/completions`
+(streaming, bearer-authed with `HERMES_API_KEY`) via `bot/hermes_client.py`,
+and reads back any `found_image_url` the tool calls produced. Hermes runs its
+own tool loop server-side and reaches `mcp-tools` over MCP streamable-HTTP. The tool bodies
 (`web_search`/`recall`/`image_search`/`vision_analyze`) live in
 `mcp_tools/tools.py` and run inside that sidecar process, not this one.
 `langstage-hermes` (the library) is still not a runtime dependency; all
@@ -116,7 +118,10 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 | `PACING_DELAY_MAX_S` | `2.0` | Maximum pacing delay (seconds) |
 | `AGENT_MAX_ITERATIONS` | `6` | Upper bound on the tool-calling loop in `bot/nodes/agent.py`; each iteration is a serial LLM round-trip, so this caps worst-case reply latency |
 | `HERMES_URL` | `http://hermes:8642` | Base URL of the Hermes agent sidecar (`bot/hermes_client.py`'s `call_hermes`) |
+| `HERMES_API_KEY` | `""` | Bearer token the bot sends to Hermes's `/v1` API server; must equal the sidecar's `API_SERVER_KEY` |
 | `MCP_TOOLS_URL` | `http://mcp-tools:8000` | Base URL of the mcp-tools sidecar Hermes calls out to for tool execution |
+| `API_SERVER_ENABLED` | `1` | Set on the **hermes** container: turns on the OpenAI-compatible `/v1/chat/completions` adapter |
+| `API_SERVER_KEY` | `""` | Set on the **hermes** container: bearer key for `/v1` (**must be ≥16 chars** or the adapter refuses to start). Set equal to `HERMES_API_KEY` |
 
 ## Local run
 
@@ -225,23 +230,45 @@ TESTCONTAINERS_RYUK_DISABLED=true .venv/bin/pytest -q
   - `db` (`pgvector/pgvector:pg16`, with a `pg_isready` healthcheck).
   - `mcp-tools` (built from `Dockerfile.mcp-tools`, waits on `db`'s
     healthcheck, needs `DATABASE_URL` for its `recall` tool).
-  - `hermes` (`nousresearch/hermes-agent:0.17.0` — placeholder tag; pinning
-    an arm64-verified image for the Pi is a later task), mounts
-    `deploy/hermes/config.yaml` read-only at `/etc/hermes/config.yaml` and
-    waits on `mcp-tools`.
+  - `hermes` (`nousresearch/hermes-agent:v2026.7.20`, arm64 + amd64), runs
+    `hermes gateway run` with `API_SERVER_ENABLED=1` + `API_SERVER_KEY` — the
+    OpenAI-compatible `/v1/chat/completions` on `:8642` is the gateway's
+    `api_server` platform adapter, so it only exists while the gateway is up.
+    `HERMES_HOME` is `/opt/data` (a persisted, writable `hermes-data` volume);
+    `deploy/hermes/{config.yaml,SOUL.md}` are seeded into it on first boot
+    (mounted at `/seed`, copied in by the entrypoint) — **not** bind-mounted
+    read-only, because Hermes rewrites `config.yaml` at runtime and a read-only
+    mount fails with `EBUSY`. Model/provider come from `HERMES_MODEL` /
+    `HERMES_INFERENCE_PROVIDER`. Waits on `mcp-tools`. **Kept off any published
+    host port** (internal network only).
   - `bot` (built from the Dockerfile, waits on `db`'s healthcheck and on
-    `hermes` starting, reads secrets from `.env`, gets `HERMES_URL` and
-    `MCP_TOOLS_URL` pointing at the other two sidecars).
+    `hermes` starting, reads secrets from `.env`, gets `HERMES_URL`,
+    `HERMES_API_KEY`, and `MCP_TOOLS_URL` pointing at the other two sidecars).
 
-  Bring the whole stack up with `docker compose up --build`.
+  Bring the whole stack up with `docker compose up --build`. On first deploy,
+  use a fresh `hermes-data` volume so the config seed applies.
 - **deploy/hermes/config.yaml**: Hermes's own config — registers the
-  `mcp-tools` MCP endpoint (`persona_tools`), restricts the agent to the
-  four tools (`web_search`, `recall`, `image_search`, `vision_analyze`),
-  disables Hermes's mutating built-in toolsets (file, patch, execute_code,
-  browser, cronjob, delegate_task, todo, skills), and sets a `system_prefix`
-  instructing terse, tool-silent output for the silence guarantee. The exact
-  key names and the `turn_id`-correlation mechanism are a best guess at
-  Hermes's schema, pending verification against the real deployed image.
+  `mcp-tools` MCP endpoint under the `mcp_servers` map (keyed by name
+  `persona_tools`, `url: http://mcp-tools:8000/mcp/`, `type: http`), restricts
+  the agent to the four tools via `tools.include` (`web_search`, `recall`,
+  `image_search`, `vision_analyze`), and disables Hermes's mutating built-in
+  toolsets (file, patch, execute_code, browser, cronjob, delegate_task, todo,
+  skills). The `mcp-tools` server exposes the modern **streamable-HTTP**
+  transport (`FastMCP.streamable_http_app()`), which is what Hermes's
+  `type: http` MCP client speaks.
+- **deploy/hermes/SOUL.md**: the persona/silence instruction (Hermes has no
+  `system_prefix` config key — identity lives in `SOUL.md` at `HERMES_HOME`).
+  Tells the agent to return terse factual findings only and never mention
+  tools, searches, or that it is an AI — the silence guarantee at the Hermes
+  layer. Each turn's `turn_id` reaches the tools two ways: the bot sends it as
+  the `X-Hermes-Session-Id` header **and** as a `turn_id=...` system message,
+  so the model passes it as the tool-call argument the tools require.
+
+**Security note:** Hermes's `api_server` runs agent work as the host user with
+the default `terminal.backend: local`. The `hermes` service is therefore kept
+off any published host port (internal Docker network only — do **not** add a
+`ports:` mapping). For defence-in-depth on a shared host, also set
+`terminal.backend: docker`.
 - **Kubernetes** (`deploy/`):
   - `deploy/bot-deployment.yaml` — a stateless `Deployment` (1 replica) for
     the bot, pulling all env vars from a `telegram-persona-bot-secrets`
