@@ -14,12 +14,15 @@ load_memory -> agent -> compose_persona
 
 - **`load_memory`** fetches the user's profile and top-K semantically
   relevant memories from Postgres/pgvector.
-- **`agent`** is a hand-rolled tool-calling loop over the `bot.llm` facade
-  (DeepSeek via OpenRouter). It can call `web_search` (Tavily), `recall`
-  (pgvector memory search), `image_search` (Brave), and `vision_analyze`
-  (vision model, for photos the user sent). It returns raw facts
-  (`raw_result`) and, if any, a `found_image_url` — never sent to the user
-  directly.
+- **`agent`** (`bot/nodes/agent.py`) registers the turn (user id, optional
+  photo bytes) with the `mcp-tools` sidecar over HTTP, then drives the
+  `Hermes` sidecar (`bot/hermes_client.py`'s `call_hermes`) over SSE for the
+  actual tool-calling work — `web_search` (Tavily), `recall` (pgvector memory
+  search), `image_search` (Brave), and `vision_analyze` all run as tool
+  bodies inside `mcp_tools/tools.py`, invoked by Hermes, not by this
+  process. The node returns Hermes's raw facts (`raw_result`) and reads back
+  any `found_image_url` Hermes's tool calls set via `mcp-tools`'s per-turn
+  side channel — never sent to the user directly.
 - **`compose_persona`** is the *only* call whose output reaches Telegram. It
   takes the raw facts and rewrites them in-character, strips markdown,
   extracts an optional `[VOICE]` tag, and returns `{text, voice, image_url}`.
@@ -38,20 +41,31 @@ cannot itself request one), and `bot/ingress.py`'s `send_guard()` rejects any
 outgoing text that still looks like raw tool/JSON output as a last-resort
 backstop.
 
-### Fallback branch: no langstage-hermes
+### Hermes agent sidecar
 
-The design originally planned to run the "work" call through
-`langstage-hermes` as an agent node. A Task-1 spike (see
+The design originally planned to run the "work" call through the
+`langstage-hermes` library embedded in-process. A Task-1 spike (see
 [`docs/spike-notes.md`](docs/spike-notes.md)) found the package's
 `MemoryProvider`, plugin-discovery, and toolset-filtering seams are not
 wired into the runtime in the pinned version — using it would have required
-global-lock/monkeypatch workarounds the plan explicitly forbids. This repo
-therefore runs the **fallback branch**: `bot/nodes/agent.py` is a plain loop
-over `bot.llm.chat_with_tools`, bounded by `agent_max_iterations`, with tools
-defined directly in `bot/tools.py`. `langstage-hermes` is not a runtime
-dependency, and there is no per-user `HERMES_HOME` — all durable state
-(profile, memories, conversation turns) lives in Postgres, and `/forget`
-deletes those rows.
+global-lock/monkeypatch workarounds the plan explicitly forbids. The repo
+first ran a **fallback branch** (a hand-rolled tool loop in
+`bot/nodes/agent.py` over `bot/tools.py`), later replaced by the current
+**sidecar architecture**: `bot/nodes/agent.py` registers each turn
+(`user_id`, optional photo bytes) with the `mcp-tools` HTTP sidecar, then
+calls the `Hermes` sidecar's OpenAI-compatible `POST /v1/chat/completions`
+(streaming, bearer-authed with `HERMES_API_KEY`) via `bot/hermes_client.py`,
+and reads back any `found_image_url` the tool calls produced. Hermes runs its
+own tool loop server-side and reaches `mcp-tools` over MCP streamable-HTTP. The tool bodies
+(`web_search`/`recall`/`image_search`/`vision_analyze`) live in
+`mcp_tools/tools.py` and run inside that sidecar process, not this one.
+`langstage-hermes` (the library) is still not a runtime dependency; all
+durable state (profile, memories, conversation turns) lives in Postgres, and
+`/forget` deletes those rows. Because Hermes (not this process) decides tool
+arguments, `recall`, `image_search`, and `vision_analyze` guard their
+per-turn store lookups against a missing/wrong `turn_id` and fall back to
+their existing neutral no-data strings instead of raising, so a Hermes
+mistake can't surface as backstage error talk in the final reply.
 
 ### Personas
 
@@ -103,17 +117,24 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 | `PACING_DELAY_MIN_S` | `0.5` | Minimum pacing delay (seconds) |
 | `PACING_DELAY_MAX_S` | `2.0` | Maximum pacing delay (seconds) |
 | `AGENT_MAX_ITERATIONS` | `6` | Upper bound on the tool-calling loop in `bot/nodes/agent.py`; each iteration is a serial LLM round-trip, so this caps worst-case reply latency |
+| `HERMES_URL` | `http://hermes:8642` | Base URL of the Hermes agent sidecar (`bot/hermes_client.py`'s `call_hermes`) |
+| `HERMES_API_KEY` | `""` | Bearer token the bot sends to Hermes's `/v1` API server; must equal the sidecar's `API_SERVER_KEY` |
+| `MCP_TOOLS_URL` | `http://mcp-tools:8000` | Base URL of the mcp-tools sidecar Hermes calls out to for tool execution |
+| `API_SERVER_ENABLED` | `1` | Set on the **hermes** container: turns on the OpenAI-compatible `/v1/chat/completions` adapter |
+| `API_SERVER_KEY` | `""` | Set on the **hermes** container: bearer key for `/v1` (**must be ≥16 chars** or the adapter refuses to start). Set equal to `HERMES_API_KEY` |
 
 ## Local run
 
 ### Option A: Docker Compose (recommended)
 
 ```bash
-docker compose up
+docker compose up --build
 ```
 
-This builds the bot image, starts a `pgvector/pgvector:pg16` Postgres
-container, waits for its healthcheck, then starts the bot. The container
+This builds the `bot` and `mcp-tools` images, starts a
+`pgvector/pgvector:pg16` Postgres container, waits for its healthcheck,
+starts `mcp-tools` (the tool-execution sidecar) and `hermes` (the
+tool-calling agent sidecar), then starts the bot. The bot container
 entrypoint runs migrations before the bot starts:
 
 ```
@@ -202,9 +223,52 @@ TESTCONTAINERS_RYUK_DISABLED=true .venv/bin/pytest -q
 - **Dockerfile**: installs the package (`pip install .`), copies `bot/` and
   `migrations/`, and entrypoints `python -m bot.migrate && python -m bot.ingress`
   — migrations always run before the bot starts polling.
-- **docker-compose.yml**: two services — `db` (`pgvector/pgvector:pg16`,
-  with a `pg_isready` healthcheck) and `bot` (built from the Dockerfile,
-  waits on `db`'s healthcheck, reads secrets from `.env`).
+- **Dockerfile.mcp-tools**: installs the package plus `uvicorn`, copies
+  `bot/` (the `recall` tool imports `bot.memory`) and `mcp_tools/`, and runs
+  `uvicorn mcp_tools.server:app --host 0.0.0.0 --port 8000`.
+- **docker-compose.yml**: four services —
+  - `db` (`pgvector/pgvector:pg16`, with a `pg_isready` healthcheck).
+  - `mcp-tools` (built from `Dockerfile.mcp-tools`, waits on `db`'s
+    healthcheck, needs `DATABASE_URL` for its `recall` tool).
+  - `hermes` (`nousresearch/hermes-agent:v2026.7.20`, arm64 + amd64), runs
+    `hermes gateway run` with `API_SERVER_ENABLED=1` + `API_SERVER_KEY` — the
+    OpenAI-compatible `/v1/chat/completions` on `:8642` is the gateway's
+    `api_server` platform adapter, so it only exists while the gateway is up.
+    `HERMES_HOME` is `/opt/data` (a persisted, writable `hermes-data` volume);
+    `deploy/hermes/{config.yaml,SOUL.md}` are seeded into it on first boot
+    (mounted at `/seed`, copied in by the entrypoint) — **not** bind-mounted
+    read-only, because Hermes rewrites `config.yaml` at runtime and a read-only
+    mount fails with `EBUSY`. Model/provider come from `HERMES_MODEL` /
+    `HERMES_INFERENCE_PROVIDER`. Waits on `mcp-tools`. **Kept off any published
+    host port** (internal network only).
+  - `bot` (built from the Dockerfile, waits on `db`'s healthcheck and on
+    `hermes` starting, reads secrets from `.env`, gets `HERMES_URL`,
+    `HERMES_API_KEY`, and `MCP_TOOLS_URL` pointing at the other two sidecars).
+
+  Bring the whole stack up with `docker compose up --build`. On first deploy,
+  use a fresh `hermes-data` volume so the config seed applies.
+- **deploy/hermes/config.yaml**: Hermes's own config — registers the
+  `mcp-tools` MCP endpoint under the `mcp_servers` map (keyed by name
+  `persona_tools`, `url: http://mcp-tools:8000/mcp/`, `type: http`), restricts
+  the agent to the four tools via `tools.include` (`web_search`, `recall`,
+  `image_search`, `vision_analyze`), and disables Hermes's mutating built-in
+  toolsets (file, patch, execute_code, browser, cronjob, delegate_task, todo,
+  skills). The `mcp-tools` server exposes the modern **streamable-HTTP**
+  transport (`FastMCP.streamable_http_app()`), which is what Hermes's
+  `type: http` MCP client speaks.
+- **deploy/hermes/SOUL.md**: the persona/silence instruction (Hermes has no
+  `system_prefix` config key — identity lives in `SOUL.md` at `HERMES_HOME`).
+  Tells the agent to return terse factual findings only and never mention
+  tools, searches, or that it is an AI — the silence guarantee at the Hermes
+  layer. Each turn's `turn_id` reaches the tools two ways: the bot sends it as
+  the `X-Hermes-Session-Id` header **and** as a `turn_id=...` system message,
+  so the model passes it as the tool-call argument the tools require.
+
+**Security note:** Hermes's `api_server` runs agent work as the host user with
+the default `terminal.backend: local`. The `hermes` service is therefore kept
+off any published host port (internal Docker network only — do **not** add a
+`ports:` mapping). For defence-in-depth on a shared host, also set
+`terminal.backend: docker`.
 - **Kubernetes** (`deploy/`):
   - `deploy/bot-deployment.yaml` — a stateless `Deployment` (1 replica) for
     the bot, pulling all env vars from a `telegram-persona-bot-secrets`

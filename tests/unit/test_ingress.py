@@ -348,19 +348,22 @@ async def test_on_message_with_real_checkpointer_sends_reply_not_fallback():
     assert ingress.SEND_GUARD_FALLBACK not in sent
 
 
-# --- Finding 2: concurrent_updates / per-task turn_context isolation ------
+# --- Finding 2: concurrent_updates / per-turn isolation --------------------
 
 async def test_concurrent_messages_from_different_users_do_not_cross_talk():
     """Fires two on_message calls concurrently (as concurrent_updates(True)
     now allows) for different chat_ids/photos and asserts each reply
     reflects only its own turn's user_id and image_bytes — no bleed through
-    the turn_context ContextVar or shared graph."""
-    from bot.turn_context import turn_context
+    the mcp-tools per-turn registration or shared graph."""
+    registered = {}
 
-    async def fake_chat_with_tools(messages, tools, model=None):
-        ctx = turn_context.get()
+    async def fake_register_turn(turn_id, *, user_id, image_bytes):
+        registered[turn_id] = (user_id, image_bytes)
+
+    async def fake_call_hermes(messages, turn_id, model=None):
         await asyncio.sleep(0.01)  # force interleaving between the two turns
-        return {"content": f"uid={ctx['user_id']}|img={ctx['image_bytes']}", "tool_calls": None}
+        uid, img = registered[turn_id]
+        return f"uid={uid}|img={img}"
 
     async def fake_chat(messages):
         for m in messages:
@@ -374,7 +377,10 @@ async def test_concurrent_messages_from_different_users_do_not_cross_talk():
 
     with patch("bot.graph.load_memory",
                new=AsyncMock(return_value={"profile": {}, "memories": []})), \
-         patch("bot.nodes.agent.llm.chat_with_tools", new=fake_chat_with_tools), \
+         patch("bot.nodes.agent._register_turn", new=fake_register_turn), \
+         patch("bot.nodes.agent.call_hermes", new=fake_call_hermes), \
+         patch("bot.nodes.agent._pop_found_image", new=AsyncMock(return_value=None)), \
+         patch("bot.nodes.agent.recent_turns", new=AsyncMock(return_value=[])), \
          patch("bot.nodes.compose_persona.llm.chat", new=fake_chat), \
          patch("bot.ingress.media.photo_to_bytes", new=fake_photo_to_bytes), \
          patch("bot.ingress.persist_memory", new=AsyncMock()), \

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     pacing_delay_min_s: float = 0.5
     pacing_delay_max_s: float = 2.0
     agent_max_iterations: int = 6  # bounds the hand-rolled tool loop; each iteration is a serial LLM round-trip, so this caps worst-case reply latency
+    hermes_url: str = "http://hermes:8642"
+    hermes_api_key: str = ""  # must equal the sidecar's API_SERVER_KEY; sent as Bearer to Hermes' /v1 api_server adapter
+    mcp_tools_url: str = "http://mcp-tools:8000"
 
 
 settings = Settings()

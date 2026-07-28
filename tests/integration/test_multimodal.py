@@ -1,40 +1,9 @@
-import base64
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import respx
 
-from bot import ingress, tools
-from bot.nodes import agent
-from bot.turn_context import turn_context
-
-
-def _msg(content=None, tool_calls=None):
-    return {"role": "assistant", "content": content, "tool_calls": tool_calls}
-
-
-async def test_photo_bytes_flow_through_turn_context_into_vision_analyze():
-    """photo -> state["image_bytes"] -> turn_context -> real vision_analyze tool
-    -> its description feeds back into the agent loop's final answer."""
-    calls = [
-        _msg(tool_calls=[{"id": "1", "type": "function",
-                          "function": {"name": "vision_analyze", "arguments": "{}"}}]),
-        _msg(content="That's a red bicycle leaning against a brick wall."),
-    ]
-    image_bytes = b"\x89PNGrawbytes"
-    with patch("bot.nodes.agent.llm.chat_with_tools", new=AsyncMock(side_effect=calls)), \
-         patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])), \
-         patch("bot.tools.llm.chat_vision", new=AsyncMock(return_value="a red bicycle")) as vision_mock:
-        out = await agent.agent_node({"user_id": 1, "user_text": "what's in this photo?",
-                                      "image_bytes": image_bytes})
-
-    assert out["raw_result"] == "That's a red bicycle leaning against a brick wall."
-    vision_mock.assert_awaited_once()
-    sent_messages = vision_mock.await_args.args[0]
-    content = sent_messages[0]["content"]
-    image_part = next(p for p in content if p["type"] == "image_url")
-    expected_b64 = base64.b64encode(image_bytes).decode()
-    assert image_part["image_url"]["url"] == f"data:image/jpeg;base64,{expected_b64}"
+from bot import ingress
 
 
 @respx.mock
@@ -59,25 +28,15 @@ async def test_voice_flagged_reply_synthesizes_real_audio_and_sends_audio():
 
 
 @respx.mock
-async def test_image_search_found_url_flows_to_send_photo(monkeypatch):
-    """real tools.image_search (HTTP mocked) sets found_image_url via turn_context;
-    that url reaching state["reply"]["image_url"] drives a real sendPhoto call."""
-    monkeypatch.setenv("BRAVE_API_KEY", "b")
-    turn_context.set({"image_bytes": None, "found_image_url": None, "user_id": 1})
-    respx.get("https://api.search.brave.com/res/v1/images/search").mock(
-        return_value=httpx.Response(
-            200, json={"results": [{"properties": {"url": "http://img/bike.jpg"}}]}))
-
-    await tools.image_search("red bicycle")
-    found_url = turn_context.get()["found_image_url"]
-    assert found_url == "http://img/bike.jpg"
-
-    respx.get(found_url).mock(return_value=httpx.Response(200, content=b"bikebytes"))
+async def test_image_search_found_url_flows_to_send_photo():
+    """a reply carrying an image_url (as set by the Hermes sidecar's image_search
+    tool) drives a real sendPhoto call with the fetched bytes."""
+    respx.get("http://img/bike.jpg").mock(return_value=httpx.Response(200, content=b"bikebytes"))
 
     with patch("bot.ingress.persist_memory", new=AsyncMock()), \
          patch("bot.ingress._graph") as g:
         g.ainvoke = AsyncMock(return_value={"reply": {"text": "here you go", "voice": False,
-                                                       "image_url": found_url}})
+                                                       "image_url": "http://img/bike.jpg"}})
         update, ctx = ingress._fake_text_update("find a bike pic", chat_id=5)
         await ingress.on_message(update, ctx)
 
