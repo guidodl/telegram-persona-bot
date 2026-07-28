@@ -226,7 +226,18 @@ TESTCONTAINERS_RYUK_DISABLED=true .venv/bin/pytest -q
 - **Dockerfile.mcp-tools**: installs the package plus `uvicorn`, copies
   `bot/` (the `recall` tool imports `bot.memory`) and `mcp_tools/`, and runs
   `uvicorn mcp_tools.server:app --host 0.0.0.0 --port 8000`.
-- **docker-compose.yml**: four services —
+- **docker-compose.yml**: four services, all sharing a `json-file` logging
+  config (`max-size: 10m`, `max-file: 3`) via the `x-logging` anchor — the
+  Docker default has no size cap or rotation, so `bot`/`hermes` (which log an
+  INFO line per Telegram poll, ~every 10s) would otherwise grow unbounded.
+  `bot`'s own `main()` (`bot/ingress.py`) additionally filters `httpx`'s
+  per-request INFO logs so the recurring `getUpdates` long-poll line (fires
+  every ~10s, carries no information beyond "still polling") never reaches
+  stdout — other httpx request logs (`sendMessage`, `sendChatAction`, etc.)
+  are unaffected. `mcp_tools/server.py` similarly filters the MCP SDK's
+  (`mcp.server.lowlevel.server`) per-request log for Hermes's periodic
+  keepalive `PingRequest` — real tool calls (`ListToolsRequest`,
+  `CallToolRequest`, etc.) still log normally.
   - `db` (`pgvector/pgvector:pg16`, with a `pg_isready` healthcheck).
   - `mcp-tools` (built from `Dockerfile.mcp-tools`, waits on `db`'s
     healthcheck, needs `DATABASE_URL` for its `recall` tool).
@@ -240,7 +251,12 @@ TESTCONTAINERS_RYUK_DISABLED=true .venv/bin/pytest -q
     read-only, because Hermes rewrites `config.yaml` at runtime and a read-only
     mount fails with `EBUSY`. Model/provider come from `HERMES_MODEL` /
     `HERMES_INFERENCE_PROVIDER`. Waits on `mcp-tools`. **Kept off any published
-    host port** (internal network only).
+    host port** (internal network only). Explicitly blanks `TELEGRAM_BOT_TOKEN`
+    (overriding the shared `.env`) — Hermes auto-activates any messaging
+    platform whose `requires_env` vars it sees, so without this override it
+    starts its own Telegram `getUpdates` poller on the same token `bot` uses,
+    and the two race for the connection until Hermes's Telegram adapter gives
+    up permanently with a `telegram_polling_conflict` fatal error.
   - `bot` (built from the Dockerfile, waits on `db`'s healthcheck and on
     `hermes` starting, reads secrets from `.env`, gets `HERMES_URL`,
     `HERMES_API_KEY`, and `MCP_TOOLS_URL` pointing at the other two sidecars).

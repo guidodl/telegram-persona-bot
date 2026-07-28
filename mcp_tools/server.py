@@ -1,10 +1,21 @@
 import base64
 import contextlib
+import logging
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp_tools import store, tools
+
+
+class _DropPingRequest(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "PingRequest" not in record.getMessage()
+
+
+# Hermes's MCP client keepalive-pings this server continually; the SDK logs
+# every request at INFO, and a ping carries no information beyond "still up".
+logging.getLogger("mcp.server.lowlevel.server").addFilter(_DropPingRequest())
 
 # streamable_http_path="/" so mounting the app at "/mcp" yields the final
 # route "/mcp" (Hermes' `type: http` transport POSTs there). sse_app() would
