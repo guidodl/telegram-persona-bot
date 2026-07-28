@@ -283,12 +283,3 @@ off any published host port (internal Docker network only — do **not** add a
 Because all durable state lives in Postgres (profile, memories, turns) and
 LangGraph checkpoints (`AsyncPostgresSaver`), the bot Deployment itself is
 fully stateless and safe to scale to zero/restart without losing user data.
-
-## Deferred to v2
-
-Not implemented in this version:
-
-- An external-actions tool (e.g. calendar, reminders, third-party APIs
-  beyond web/image search)
-- Voice-in / speech-to-text (only voice-*out* via OpenRouter TTS is supported, sent as an mp3 audio file)
-- Image generation (only image *search*, via Brave, is supported)
