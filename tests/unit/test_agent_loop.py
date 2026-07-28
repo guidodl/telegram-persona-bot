@@ -53,6 +53,24 @@ async def test_agent_node_never_raises():
         out = await agent.agent_node({"user_id": 7, "user_text": "hi", "image_bytes": None})
     assert out["raw_result"] is None and "boom" in out["agent_error"]
 
+async def test_failing_tool_does_not_kill_turn():
+    calls = [
+        _msg(tool_calls=[{"id": "1", "type": "function",
+                          "function": {"name": "image_search", "arguments": '{"query":"cat"}'}}]),
+        _msg(content="no pic today, sorry"),
+    ]
+    with patch("bot.nodes.agent.llm.chat_with_tools",
+               new=AsyncMock(side_effect=calls)), \
+         patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch.dict("bot.nodes.agent.TOOL_FUNCS",
+                    {"image_search": AsyncMock(side_effect=RuntimeError("brave 422"))},
+                    clear=False):
+        out = await agent.agent_node({"user_id": 7, "user_text": "send a cat",
+                                      "image_bytes": None})
+    assert out["raw_result"] == "no pic today, sorry"
+    assert "agent_error" not in out
+    assert out["found_image_url"] is None
+
 async def test_recent_turns_reversed_to_chronological_with_current_message_last():
     captured = {}
     async def cap(messages, tools, model=None):

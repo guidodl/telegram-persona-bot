@@ -72,6 +72,8 @@ async def test_image_search_found_url_flows_to_send_photo(monkeypatch):
     found_url = turn_context.get()["found_image_url"]
     assert found_url == "http://img/bike.jpg"
 
+    respx.get(found_url).mock(return_value=httpx.Response(200, content=b"bikebytes"))
+
     with patch("bot.ingress.persist_memory", new=AsyncMock()), \
          patch("bot.ingress._graph") as g:
         g.ainvoke = AsyncMock(return_value={"reply": {"text": "here you go", "voice": False,
@@ -79,4 +81,5 @@ async def test_image_search_found_url_flows_to_send_photo(monkeypatch):
         update, ctx = ingress._fake_text_update("find a bike pic", chat_id=5)
         await ingress.on_message(update, ctx)
 
-    ctx.bot.send_photo.assert_awaited_once_with(chat_id=5, photo=found_url)
+    ctx.bot.send_photo.assert_awaited_once()
+    assert ctx.bot.send_photo.call_args.kwargs["chat_id"] == 5

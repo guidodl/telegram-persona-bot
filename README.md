@@ -24,6 +24,12 @@ load_memory -> agent -> compose_persona
   takes the raw facts and rewrites them in-character, strips markdown,
   extracts an optional `[VOICE]` tag, and returns `{text, voice, image_url}`.
 
+When a reply carries an `image_url`, `bot/ingress.py` downloads the image bytes
+(`media.fetch_image`) and **uploads** them to Telegram as a file
+(`media.to_photo`), rather than handing Telegram the URL to hotlink — so the
+photo arrives as if a person picked it and sent it. If the download or upload
+fails, it is logged and the text reply still goes through.
+
 **The two-call silence guarantee:** no tool name, tool-call JSON, or raw
 search/vision result ever reaches the user — only `compose_persona`'s
 in-character text. Two independent layers enforce this: `compose_persona`

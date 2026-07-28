@@ -1,9 +1,12 @@
 import json
+import logging
 from bot import llm, memory
 from bot.config import settings
 from bot.persona import build_agent_briefing
 from bot.tools import TOOL_SPECS, TOOL_FUNCS
 from bot.turn_context import turn_context
+
+logger = logging.getLogger(__name__)
 
 async def agent_node(state) -> dict:
     token = turn_context.set({"image_bytes": state.get("image_bytes"),
@@ -28,14 +31,23 @@ async def agent_node(state) -> dict:
                         "found_image_url": turn_context.get()["found_image_url"]}
             messages.append(msg)
             for tc in tool_calls:
-                fn = TOOL_FUNCS[tc["function"]["name"]]
-                args = json.loads(tc["function"]["arguments"] or "{}")
-                result = await fn(**args)
+                name = tc["function"]["name"]
+                try:
+                    fn = TOOL_FUNCS[name]
+                    args = json.loads(tc["function"]["arguments"] or "{}")
+                    result = await fn(**args)
+                except Exception as exc:
+                    # A failing tool (bad key, provider down, malformed args)
+                    # must not kill the whole turn: tell the model it failed
+                    # and let it finish the reply without that data.
+                    logger.warning("tool %s failed: %s", name, exc)
+                    result = f"(tool {name} failed; answer without it)"
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
         # iteration budget exhausted: return the last content if any
         return {"raw_result": messages[-1].get("content"),
                 "found_image_url": turn_context.get()["found_image_url"]}
     except Exception as exc:
+        logger.exception("agent node failed for user_id=%s", state["user_id"])
         return {"raw_result": None, "agent_error": str(exc)}
     finally:
         turn_context.reset(token)
