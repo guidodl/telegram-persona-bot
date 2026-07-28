@@ -1,18 +1,36 @@
-import json
+import base64
 import logging
-from bot import llm, memory
+import uuid
+
+import httpx
+
 from bot.config import settings
+from bot.hermes_client import call_hermes
+from bot.memory import recent_turns
 from bot.persona import build_agent_briefing
-from bot.tools import TOOL_SPECS, TOOL_FUNCS
-from bot.turn_context import turn_context
 
 logger = logging.getLogger(__name__)
 
+
+async def _register_turn(turn_id: str, *, user_id: int, image_bytes: bytes | None) -> None:
+    b64 = base64.b64encode(image_bytes).decode() if image_bytes else None
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(f"{settings.mcp_tools_url}/turns",
+                         json={"turn_id": turn_id, "user_id": user_id, "image_bytes_b64": b64})
+        r.raise_for_status()
+
+
+async def _pop_found_image(turn_id: str) -> str | None:
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get(f"{settings.mcp_tools_url}/turns/{turn_id}/found_image")
+        r.raise_for_status()
+        return r.json().get("found_image_url")
+
+
 async def agent_node(state) -> dict:
-    token = turn_context.set({"image_bytes": state.get("image_bytes"),
-                              "found_image_url": None, "user_id": state["user_id"]})
+    turn_id = uuid.uuid4().hex
     try:
-        recent = await memory.recent_turns(state["user_id"], 10)
+        recent = await recent_turns(state["user_id"], 10)
         messages = [{"role": r["role"], "content": r["content"]} for r in reversed(recent)]
         prompt = state["user_text"]
         if state.get("image_bytes"):
@@ -22,32 +40,16 @@ async def agent_node(state) -> dict:
         if briefing:
             messages.insert(0, {"role": "system", "content": briefing})
 
-        for _ in range(settings.agent_max_iterations):
-            msg = await llm.chat_with_tools(messages, TOOL_SPECS,
-                                            model=settings.model_agent or None)
-            tool_calls = msg.get("tool_calls")
-            if not tool_calls:
-                return {"raw_result": msg.get("content"), "agent_error": None,
-                        "found_image_url": turn_context.get()["found_image_url"]}
-            messages.append(msg)
-            for tc in tool_calls:
-                name = tc["function"]["name"]
-                try:
-                    fn = TOOL_FUNCS[name]
-                    args = json.loads(tc["function"]["arguments"] or "{}")
-                    result = await fn(**args)
-                except Exception as exc:
-                    # A failing tool (bad key, provider down, malformed args)
-                    # must not kill the whole turn: tell the model it failed
-                    # and let it finish the reply without that data.
-                    logger.warning("tool %s failed: %s", name, exc)
-                    result = f"(tool {name} failed; answer without it)"
-                messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
-        # iteration budget exhausted: return the last content if any
-        return {"raw_result": messages[-1].get("content"), "agent_error": None,
-                "found_image_url": turn_context.get()["found_image_url"]}
+        await _register_turn(turn_id, user_id=state["user_id"],
+                             image_bytes=state.get("image_bytes"))
+        raw = await call_hermes(messages, turn_id=turn_id,
+                                model=settings.model_agent or None)
+        found = await _pop_found_image(turn_id)
+        return {"raw_result": raw or None, "found_image_url": found, "agent_error": None}
     except Exception as exc:
         logger.exception("agent node failed for user_id=%s", state["user_id"])
+        try:
+            await _pop_found_image(turn_id)  # best-effort cleanup
+        except Exception:
+            pass
         return {"raw_result": None, "found_image_url": None, "agent_error": str(exc)}
-    finally:
-        turn_context.reset(token)

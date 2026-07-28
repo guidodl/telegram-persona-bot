@@ -14,12 +14,15 @@ load_memory -> agent -> compose_persona
 
 - **`load_memory`** fetches the user's profile and top-K semantically
   relevant memories from Postgres/pgvector.
-- **`agent`** is a hand-rolled tool-calling loop over the `bot.llm` facade
-  (DeepSeek via OpenRouter). It can call `web_search` (Tavily), `recall`
-  (pgvector memory search), `image_search` (Brave), and `vision_analyze`
-  (vision model, for photos the user sent). It returns raw facts
-  (`raw_result`) and, if any, a `found_image_url` — never sent to the user
-  directly.
+- **`agent`** (`bot/nodes/agent.py`) registers the turn (user id, optional
+  photo bytes) with the `mcp-tools` sidecar over HTTP, then drives the
+  `Hermes` sidecar (`bot/hermes_client.py`'s `call_hermes`) over SSE for the
+  actual tool-calling work — `web_search` (Tavily), `recall` (pgvector memory
+  search), `image_search` (Brave), and `vision_analyze` all run as tool
+  bodies inside `mcp_tools/tools.py`, invoked by Hermes, not by this
+  process. The node returns Hermes's raw facts (`raw_result`) and reads back
+  any `found_image_url` Hermes's tool calls set via `mcp-tools`'s per-turn
+  side channel — never sent to the user directly.
 - **`compose_persona`** is the *only* call whose output reaches Telegram. It
   takes the raw facts and rewrites them in-character, strips markdown,
   extracts an optional `[VOICE]` tag, and returns `{text, voice, image_url}`.
@@ -38,20 +41,25 @@ cannot itself request one), and `bot/ingress.py`'s `send_guard()` rejects any
 outgoing text that still looks like raw tool/JSON output as a last-resort
 backstop.
 
-### Fallback branch: no langstage-hermes
+### Hermes agent sidecar
 
-The design originally planned to run the "work" call through
-`langstage-hermes` as an agent node. A Task-1 spike (see
+The design originally planned to run the "work" call through the
+`langstage-hermes` library embedded in-process. A Task-1 spike (see
 [`docs/spike-notes.md`](docs/spike-notes.md)) found the package's
 `MemoryProvider`, plugin-discovery, and toolset-filtering seams are not
 wired into the runtime in the pinned version — using it would have required
-global-lock/monkeypatch workarounds the plan explicitly forbids. This repo
-therefore runs the **fallback branch**: `bot/nodes/agent.py` is a plain loop
-over `bot.llm.chat_with_tools`, bounded by `agent_max_iterations`, with tools
-defined directly in `bot/tools.py`. `langstage-hermes` is not a runtime
-dependency, and there is no per-user `HERMES_HOME` — all durable state
-(profile, memories, conversation turns) lives in Postgres, and `/forget`
-deletes those rows.
+global-lock/monkeypatch workarounds the plan explicitly forbids. The repo
+first ran a **fallback branch** (a hand-rolled tool loop in
+`bot/nodes/agent.py` over `bot/tools.py`), later replaced by the current
+**sidecar architecture**: `bot/nodes/agent.py` registers each turn
+(`user_id`, optional photo bytes) with the `mcp-tools` HTTP sidecar, calls
+the `Hermes` sidecar over SSE (`bot/hermes_client.py`), and reads back any
+`found_image_url` the tool calls produced. The tool bodies
+(`web_search`/`recall`/`image_search`/`vision_analyze`) live in
+`mcp_tools/tools.py` and run inside that sidecar process, not this one.
+`langstage-hermes` (the library) is still not a runtime dependency; all
+durable state (profile, memories, conversation turns) lives in Postgres, and
+`/forget` deletes those rows.
 
 ### Personas
 
