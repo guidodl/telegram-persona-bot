@@ -1,6 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
+from telegram import InputFile
 from telegram.constants import ChatType
 from langgraph.checkpoint.memory import InMemorySaver
 from bot import ingress
@@ -237,14 +238,19 @@ async def test_voice_reply_falls_back_to_text_when_synth_fails():
     update.effective_message.reply_text.assert_awaited_once_with("hi there")
 
 
-async def test_image_url_reply_sends_photo():
+async def test_image_url_reply_downloads_and_uploads_photo():
     with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.media.fetch_image", new=AsyncMock(return_value=b"imgbytes")) as fi, \
          patch("bot.ingress._graph") as g:
         g.ainvoke = AsyncMock(return_value={"reply": {"text": "here you go", "voice": False,
                                                        "image_url": "http://img/1.jpg"}})
         update, ctx = ingress._fake_text_update("hello", chat_id=5)
         await ingress.on_message(update, ctx)
-    ctx.bot.send_photo.assert_awaited_once_with(chat_id=5, photo="http://img/1.jpg")
+    fi.assert_awaited_once_with("http://img/1.jpg")
+    ctx.bot.send_photo.assert_awaited_once()
+    kwargs = ctx.bot.send_photo.call_args.kwargs
+    assert kwargs["chat_id"] == 5
+    assert isinstance(kwargs["photo"], InputFile)
 
 
 async def test_photo_message_extracts_image_bytes():
@@ -351,7 +357,7 @@ async def test_concurrent_messages_from_different_users_do_not_cross_talk():
     the turn_context ContextVar or shared graph."""
     from bot.turn_context import turn_context
 
-    async def fake_chat_with_tools(messages, tools):
+    async def fake_chat_with_tools(messages, tools, model=None):
         ctx = turn_context.get()
         await asyncio.sleep(0.01)  # force interleaving between the two turns
         return {"content": f"uid={ctx['user_id']}|img={ctx['image_bytes']}", "tool_calls": None}

@@ -29,10 +29,12 @@ AGENT_BRIEFING = (
     "rewrites your output into the final in-character reply — you never write "
     "user-facing text yourself. Use your tools to fetch whatever the persona's reply "
     "will need: fresh facts via web_search, remembered details via recall, photos via "
-    "image_search. When the persona definition below implies a photo should be sent "
-    "(for example a trigger that answers with a picture), call image_search with a "
-    "query specific enough to guarantee the right subject, then return minimal raw "
-    "facts. Never mention tools in your output.\n\nPersona definition:\n"
+    "image_search. Whenever the user's message asks for a photo or picture — directly "
+    "or via a persona trigger that answers with a picture — call image_search "
+    "immediately: never ask clarifying questions instead of searching, and if a search "
+    "finds nothing retry once with simpler wording. Use a query specific enough to "
+    "guarantee the right subject, then return minimal raw facts. Never mention tools "
+    "in your output.\n\nPersona definition:\n"
 )
 
 

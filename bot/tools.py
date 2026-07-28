@@ -47,7 +47,11 @@ def _spec(name, desc, props=None):
 TOOL_SPECS = [
     _spec("web_search", "Search the web for fresh facts.", {"query": {"type": "string"}}),
     _spec("recall", "Recall durable facts remembered about this user.", {"query": {"type": "string"}}),
-    _spec("image_search", "Find an existing image to send.", {"query": {"type": "string"}}),
+    _spec("image_search", "Find an existing image to send. Phrase the query as neutral "
+          "descriptive English (e.g. 'portrait of a young woman smiling', 'ginger cat "
+          "on a sofa'): slang or compliment-heavy phrasing in any language returns zero "
+          "results. If a search finds nothing, retry once with simpler neutral wording.",
+          {"query": {"type": "string"}}),
     _spec("vision_analyze", "Describe the photo the user attached this turn."),
 ]
 TOOL_FUNCS = {"web_search": web_search, "recall": recall,

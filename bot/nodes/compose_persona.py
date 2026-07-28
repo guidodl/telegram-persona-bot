@@ -9,6 +9,12 @@ FALLBACK_INSTRUCTION = (
     "error, or technical detail."
 )
 
+IMAGE_ONLY_INSTRUCTION = (
+    "You found a photo for them and it will be sent alongside your reply. Say "
+    "something short and warm in character to go with the picture — as if you're "
+    "sending it yourself — without mentioning any tool, search, or that it's a photo."
+)
+
 VOICE_INSTRUCTION = (
     "If a short spoken voice note would land better than text for this reply, say so "
     "by starting your reply with the exact tag [VOICE] followed by the message; "
@@ -57,8 +63,14 @@ async def compose_persona(state) -> dict:
     system_prompt = build_system_prompt(state["profile"], state["memories"])
     raw_result = state.get("raw_result")
     agent_error = state.get("agent_error")
+    found_image_url = None if agent_error else state.get("found_image_url")
 
-    if agent_error or not raw_result:
+    # The agent often returns empty text after an image_search (its briefing
+    # tells it to return minimal facts), so a found image must not depend on
+    # raw_result being non-empty. Speak from the image itself in that case.
+    if found_image_url and not raw_result:
+        facts_message = IMAGE_ONLY_INSTRUCTION
+    elif agent_error or not raw_result:
         facts_message = FALLBACK_INSTRUCTION
     else:
         facts_message = f"Facts to speak from:\n{raw_result}"
@@ -83,6 +95,4 @@ async def compose_persona(state) -> dict:
         text = _strip_jargon(_strip_markdown(await llm.chat(messages) or "")).strip()
         voice = False
 
-    image_url = None if (agent_error or not raw_result) else state.get("found_image_url")
-
-    return {"reply": {"text": text, "voice": voice, "image_url": image_url}}
+    return {"reply": {"text": text, "voice": voice, "image_url": found_image_url}}

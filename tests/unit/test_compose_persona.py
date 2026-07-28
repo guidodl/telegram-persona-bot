@@ -19,6 +19,23 @@ async def test_image_url_comes_from_state_not_model():
                                      "found_image_url": "http://img/1.jpg"})
     assert out["reply"]["image_url"] == "http://img/1.jpg"
 
+async def test_found_image_survives_empty_raw_result():
+    with patch("bot.nodes.compose_persona.llm.chat",
+               new=AsyncMock(return_value="here you go!")):
+        out = await compose_persona({**BASE, "raw_result": "",
+                                     "found_image_url": "http://img/1.jpg"})
+    assert out["reply"]["image_url"] == "http://img/1.jpg"
+    assert out["reply"]["text"] == "here you go!"
+
+
+async def test_found_image_dropped_on_agent_error():
+    with patch("bot.nodes.compose_persona.llm.chat",
+               new=AsyncMock(return_value="sorry, couldn't")):
+        out = await compose_persona({**BASE, "raw_result": None, "agent_error": "boom",
+                                     "found_image_url": "http://img/1.jpg"})
+    assert out["reply"]["image_url"] is None
+
+
 async def test_graceful_fallback_on_agent_error():
     with patch("bot.nodes.compose_persona.llm.chat",
                new=AsyncMock(return_value="hmm, I couldn't pull that up right now")):

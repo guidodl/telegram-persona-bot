@@ -236,7 +236,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     image_url = reply.get("image_url")
     if image_url:
         try:
-            await context.bot.send_photo(chat_id=chat.id, photo=image_url)
+            image_bytes = await media.fetch_image(image_url)
+            await context.bot.send_photo(chat_id=chat.id, photo=media.to_photo(image_bytes))
         except Exception:
             logger.exception("photo send failed for chat_id=%s", chat.id)
 
