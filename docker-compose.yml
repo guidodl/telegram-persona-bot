@@ -1,7 +1,16 @@
+# Default json-file has no size cap or rotation — left unset, container logs
+# grow forever (bot/hermes log an INFO line per Telegram poll, ~every 10s).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: bot
       POSTGRES_PASSWORD: bot
@@ -17,6 +26,7 @@ services:
   bot:
     build: .
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - path: .env
         required: false
@@ -35,6 +45,7 @@ services:
       context: .
       dockerfile: Dockerfile.mcp-tools
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - path: .env
         required: false
@@ -47,6 +58,7 @@ services:
   hermes:
     image: nousresearch/hermes-agent:v2026.7.20  # arm64 + amd64; date-based tags (no semver)
     restart: unless-stopped
+    logging: *default-logging
     # The OpenAI-compatible POST /v1/chat/completions on :8642 is the gateway
     # "api_server" platform adapter — it only exists while `hermes gateway run`
     # is up and API_SERVER_ENABLED/API_SERVER_KEY are set. The bot authenticates
@@ -70,6 +82,12 @@ services:
       HERMES_MODEL: deepseek/deepseek-v4-flash
       HERMES_INFERENCE_PROVIDER: openrouter
       # API_SERVER_KEY and OPENROUTER_API_KEY come from .env
+      # Hermes auto-activates any messaging platform whose requires_env vars
+      # it sees (plugins/platforms/telegram/plugin.yaml: TELEGRAM_BOT_TOKEN).
+      # We only want Hermes as an API-server backend for `bot`'s own Telegram
+      # polling, not as a second Telegram client racing it for the same
+      # token's getUpdates long-poll — blank it out here to override .env.
+      TELEGRAM_BOT_TOKEN: ""
     volumes:
       - hermes-data:/opt/data  # config.yaml + SOUL.md + session store (persisted, writable)
       - ./deploy/hermes:/seed:ro  # source for first-boot seeding

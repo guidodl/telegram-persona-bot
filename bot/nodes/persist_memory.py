@@ -1,8 +1,11 @@
 import json
 import logging
+import re
 from bot import llm, memory
 
 logger = logging.getLogger(__name__)
+
+_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 EXTRACTION_PROMPT = (
     "Extract any new, durable facts about the user from this exchange — "
@@ -18,7 +21,14 @@ EXTRACTION_PROMPT = (
 
 
 def _parse_extraction(raw: str) -> tuple[list[str], str | None]:
-    data = json.loads(raw)
+    raw = _FENCE_RE.sub("", raw.strip()).strip()
+    if not raw:
+        return [], None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("persist_memory got non-JSON extraction output: %r", raw[:200])
+        return [], None
     if isinstance(data, list):
         items = data
         summary = None

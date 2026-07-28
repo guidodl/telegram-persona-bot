@@ -267,8 +267,16 @@ def _fake_text_update(text: str, chat_id: int = 1):
     return update, context
 
 
+class _DropGetUpdates(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "getUpdates" not in record.getMessage()
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
+    # httpx logs every request at INFO; the long-poll fires every ~10s
+    # forever and carries no information beyond "still polling".
+    logging.getLogger("httpx").addFilter(_DropGetUpdates())
 
     async def _run() -> None:
         global _graph
