@@ -51,8 +51,15 @@ services:
     # "api_server" platform adapter — it only exists while `hermes gateway run`
     # is up and API_SERVER_ENABLED/API_SERVER_KEY are set. The bot authenticates
     # with API_SERVER_KEY. HERMES_HOME=/opt/data holds config.yaml + the sqlite
-    # session store, so it must be a persisted volume.
-    command: ["gateway", "run"]
+    # session store, so it must be a persisted, WRITABLE volume — Hermes rewrites
+    # config.yaml at runtime, so we seed our files into it on boot rather than
+    # bind-mounting them read-only (a RO bind makes `config set` fail EBUSY).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cp -n /seed/config.yaml /opt/data/config.yaml 2>/dev/null || true
+        cp -n /seed/SOUL.md /opt/data/SOUL.md 2>/dev/null || true
+        exec /init /opt/hermes/docker/main-wrapper.sh gateway run
     env_file:
       - path: .env
         required: false
@@ -60,11 +67,12 @@ services:
       API_SERVER_ENABLED: "1"
       API_SERVER_HOST: 0.0.0.0
       API_SERVER_PORT: "8642"
-      # API_SERVER_KEY and the model provider key (e.g. OPENROUTER_API_KEY) come from .env
+      HERMES_MODEL: deepseek/deepseek-v4-flash
+      HERMES_INFERENCE_PROVIDER: openrouter
+      # API_SERVER_KEY and OPENROUTER_API_KEY come from .env
     volumes:
-      - hermes-data:/opt/data  # session store + state.db (persisted)
-      - ./deploy/hermes/config.yaml:/opt/data/config.yaml:ro
-      - ./deploy/hermes/SOUL.md:/opt/data/SOUL.md:ro
+      - hermes-data:/opt/data  # config.yaml + SOUL.md + session store (persisted, writable)
+      - ./deploy/hermes:/seed:ro  # source for first-boot seeding
     depends_on:
       - mcp-tools
 

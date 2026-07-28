@@ -4,7 +4,7 @@
 # running: hermes mcp add persona_tools --url http://mcp-tools:8000/mcp
 mcp_servers:
   persona_tools:
-    url: http://mcp-tools:8000/mcp
+    url: http://mcp-tools:8000/mcp/
     type: http
     enabled: true
     tools:
