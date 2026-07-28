@@ -103,6 +103,8 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 | `PACING_DELAY_MIN_S` | `0.5` | Minimum pacing delay (seconds) |
 | `PACING_DELAY_MAX_S` | `2.0` | Maximum pacing delay (seconds) |
 | `AGENT_MAX_ITERATIONS` | `6` | Upper bound on the tool-calling loop in `bot/nodes/agent.py`; each iteration is a serial LLM round-trip, so this caps worst-case reply latency |
+| `HERMES_URL` | `http://hermes:8642` | Base URL of the Hermes agent sidecar (`bot/hermes_client.py`'s `call_hermes`) |
+| `MCP_TOOLS_URL` | `http://mcp-tools:8000` | Base URL of the mcp-tools sidecar Hermes calls out to for tool execution |
 
 ## Local run
 
