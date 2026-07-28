@@ -27,7 +27,7 @@ async def agent_node(state) -> dict:
                                             model=settings.model_agent or None)
             tool_calls = msg.get("tool_calls")
             if not tool_calls:
-                return {"raw_result": msg.get("content"),
+                return {"raw_result": msg.get("content"), "agent_error": None,
                         "found_image_url": turn_context.get()["found_image_url"]}
             messages.append(msg)
             for tc in tool_calls:
@@ -44,10 +44,10 @@ async def agent_node(state) -> dict:
                     result = f"(tool {name} failed; answer without it)"
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
         # iteration budget exhausted: return the last content if any
-        return {"raw_result": messages[-1].get("content"),
+        return {"raw_result": messages[-1].get("content"), "agent_error": None,
                 "found_image_url": turn_context.get()["found_image_url"]}
     except Exception as exc:
         logger.exception("agent node failed for user_id=%s", state["user_id"])
-        return {"raw_result": None, "agent_error": str(exc)}
+        return {"raw_result": None, "found_image_url": None, "agent_error": str(exc)}
     finally:
         turn_context.reset(token)

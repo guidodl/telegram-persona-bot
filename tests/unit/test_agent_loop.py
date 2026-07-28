@@ -68,8 +68,19 @@ async def test_failing_tool_does_not_kill_turn():
         out = await agent.agent_node({"user_id": 7, "user_text": "send a cat",
                                       "image_bytes": None})
     assert out["raw_result"] == "no pic today, sorry"
-    assert "agent_error" not in out
+    assert out["agent_error"] is None
     assert out["found_image_url"] is None
+
+
+async def test_successful_turn_clears_stale_agent_error():
+    """A prior turn's agent_error is checkpointed in the thread state; a later
+    successful turn must clear it so compose_persona doesn't drop the image."""
+    with patch("bot.nodes.agent.llm.chat_with_tools",
+               new=AsyncMock(return_value=_msg(content="all good"))), \
+         patch("bot.nodes.agent.memory.recent_turns", new=AsyncMock(return_value=[])):
+        out = await agent.agent_node({"user_id": 7, "user_text": "hi", "image_bytes": None,
+                                      "agent_error": "stale 422 from a past turn"})
+    assert out["agent_error"] is None
 
 async def test_recent_turns_reversed_to_chronological_with_current_message_last():
     captured = {}
@@ -94,7 +105,7 @@ async def test_iteration_budget_exhausted_returns_without_raising():
                     {"recall": AsyncMock(return_value="- some fact")}, clear=False):
         out = await agent.agent_node({"user_id": 7, "user_text": "loop forever?",
                                       "image_bytes": None})
-    assert "raw_result" in out and "agent_error" not in out
+    assert "raw_result" in out and out["agent_error"] is None
 
 async def test_briefing_prepended_when_persona_configured():
     captured = {}
