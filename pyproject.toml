@@ -13,7 +13,9 @@ dependencies = [
   "pydantic-settings>=2.0",
   "fastapi>=0.110",
   "uvicorn>=0.27",
-  "mcp>=1.0",
+  # <2 deliberately: mcp 2.0 removed mcp.server.fastmcp, which mcp_tools/server.py
+  # builds the streamable-HTTP app with. The live image runs 1.28.1.
+  "mcp>=1.0,<2",
 ]
 
 [project.optional-dependencies]

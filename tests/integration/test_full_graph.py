@@ -19,10 +19,6 @@ def _wire(pg_url, monkeypatch):
     monkeypatch.setattr("bot.config.settings.database_url", pg_url)
 
 
-def _msg(content=None, tool_calls=None):
-    return {"role": "assistant", "content": content, "tool_calls": tool_calls}
-
-
 def _pad(v):
     return v + [0.0] * (1536 - len(v))
 
@@ -32,10 +28,10 @@ async def _fake_embed(texts):
 
 
 async def test_full_graph_only_compose_persona_output_reaches_sink(pg_url):
-    """Real Postgres-backed load_memory/agent/compose_persona wiring: the agent
-    loop's raw content is a tool-flavored string, but only compose_persona's
-    persona-styled text is allowed out of the graph — no tool string or
-    raw_result leaks into the reply."""
+    """Real Postgres-backed load_memory/agent/compose_persona wiring: Hermes
+    returns a tool-flavored string, but only compose_persona's persona-styled
+    text is allowed out of the graph — no tool string or raw_result leaks into
+    the reply."""
     await apply_migrations(pg_url)
     from bot import memory
     await memory._reset_engine_for_tests()
@@ -43,8 +39,10 @@ async def test_full_graph_only_compose_persona_output_reaches_sink(pg_url):
     leaky_raw_result = "RAW_TOOL_JSON:{'temp_c': 24, 'condition': 'clear'}"
     persona_reply = "It's sunny and warm out there today!"
 
-    with patch("bot.nodes.agent.llm.chat_with_tools",
-               new=AsyncMock(return_value=_msg(content=leaky_raw_result))), \
+    with patch("bot.nodes.agent._register_turn", new=AsyncMock()), \
+         patch("bot.nodes.agent._pop_found_image", new=AsyncMock(return_value=None)), \
+         patch("bot.nodes.agent.call_hermes",
+               new=AsyncMock(return_value=leaky_raw_result)), \
          patch("bot.nodes.compose_persona.llm.chat",
                new=AsyncMock(return_value=persona_reply)), \
          patch("bot.memory.llm.embed", new=AsyncMock(side_effect=_fake_embed)):
@@ -76,8 +74,10 @@ async def test_cross_session_memory_fact_persists_and_is_recalled(pg_url):
     fact = "user's favorite color is teal"
 
     # --- turn 1: user states the fact, bot replies, memory work runs post-send ---
-    with patch("bot.nodes.agent.llm.chat_with_tools",
-               new=AsyncMock(return_value=_msg(content="Got it, I'll remember that!"))), \
+    with patch("bot.nodes.agent._register_turn", new=AsyncMock()), \
+         patch("bot.nodes.agent._pop_found_image", new=AsyncMock(return_value=None)), \
+         patch("bot.nodes.agent.call_hermes",
+               new=AsyncMock(return_value="Got it, I'll remember that!")), \
          patch("bot.nodes.compose_persona.llm.chat",
                new=AsyncMock(return_value="Got it, I'll remember that!")), \
          patch("bot.memory.llm.embed", new=AsyncMock(side_effect=_fake_embed)):
@@ -98,8 +98,10 @@ async def test_cross_session_memory_fact_persists_and_is_recalled(pg_url):
     await memory.log_turn(chat_id, "assistant", reply_text_1)
 
     # --- turn 2: a fresh graph invocation must recall the fact via load_memory ---
-    with patch("bot.nodes.agent.llm.chat_with_tools",
-               new=AsyncMock(return_value=_msg(content="Teal is a great color!"))), \
+    with patch("bot.nodes.agent._register_turn", new=AsyncMock()), \
+         patch("bot.nodes.agent._pop_found_image", new=AsyncMock(return_value=None)), \
+         patch("bot.nodes.agent.call_hermes",
+               new=AsyncMock(return_value="Teal is a great color!")), \
          patch("bot.nodes.compose_persona.llm.chat",
                new=AsyncMock(return_value="Teal is a great color!")), \
          patch("bot.memory.llm.embed", new=AsyncMock(side_effect=_fake_embed)):

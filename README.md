@@ -200,6 +200,7 @@ conversation. `/forget` wipes the calling user's own memory.
 ## Tests
 
 ```bash
+.venv/bin/pip install -e ".[dev]"   # once, to get pytest + the mcp SDK
 .venv/bin/pytest -m "not slow" -q
 ```
 
@@ -289,7 +290,10 @@ TESTCONTAINERS_RYUK_DISABLED=true .venv/bin/pytest -q
   enabled, backed by the `TAVILY_API_KEY` it already has, and `web_extract` is
   what the agent uses to read links people share. The `mcp-tools` server exposes the modern **streamable-HTTP**
   transport (`FastMCP.streamable_http_app()`), which is what Hermes's
-  `type: http` MCP client speaks.
+  `type: http` MCP client speaks. `FastMCP` lives at `mcp.server.fastmcp`,
+  which **mcp 2.0 removed** — hence the `mcp>=1.0,<2` pin in `pyproject.toml`.
+  Without it a fresh `docker compose build` resolves to 2.x and the mcp-tools
+  image fails at import.
 - **deploy/hermes/SOUL.md**: the persona/silence instruction (Hermes has no
   `system_prefix` config key — identity lives in `SOUL.md` at `HERMES_HOME`).
   Tells the agent to return terse factual findings only and never mention
