@@ -421,3 +421,74 @@ def test_chunk_reply_spaceless_long_string_splits_sanely():
     assert chunks[1] == "a" * 2000
     assert chunks[0] + chunks[1] == text
     assert len(chunks[1]) > 1  # not a stray single trailing character
+
+
+# --- Quoted-message context ------------------------------------------------
+#
+# Bug: replying to (or quoting) another message and asking "che ne pensi?"
+# sent only the bare question to the graph. The quoted text — often the whole
+# subject, e.g. a shared link — never reached the agent, so the bot answered
+# "you didn't send me anything".
+
+async def test_reply_to_another_message_includes_quoted_text_in_user_text():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("che ne pensi?", chat_id=5)
+        quoted = MagicMock()
+        quoted.from_user.id = 4242
+        quoted.from_user.first_name = "Guido"
+        quoted.text = "https://docs.litellm.ai/docs/proxy/auto_routing"
+        quoted.caption = None
+        update.effective_message.reply_to_message = quoted
+        await ingress.on_message(update, ctx)
+    sent_text = g.ainvoke.call_args.args[0]["user_text"]
+    assert "https://docs.litellm.ai/docs/proxy/auto_routing" in sent_text
+    assert "che ne pensi?" in sent_text
+
+
+async def test_reply_to_bot_own_message_does_not_duplicate_quoted_text():
+    """The bot's own prior turn is already in the conversation history the
+    agent node loads, so re-injecting it would duplicate context."""
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("and tomorrow?", chat_id=5)
+        quoted = MagicMock()
+        quoted.from_user.id = ctx.bot.id
+        quoted.text = "today is sunny"
+        quoted.caption = None
+        update.effective_message.reply_to_message = quoted
+        await ingress.on_message(update, ctx)
+    assert g.ainvoke.call_args.args[0]["user_text"] == "and tomorrow?"
+
+
+async def test_message_without_reply_keeps_user_text_unchanged():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("plain question", chat_id=5)
+        await ingress.on_message(update, ctx)
+    assert g.ainvoke.call_args.args[0]["user_text"] == "plain question"
+
+
+async def test_reply_to_empty_message_adds_no_quote_block():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("che ne pensi?", chat_id=5)
+        quoted = MagicMock()
+        quoted.from_user.id = 4242
+        quoted.text = None
+        quoted.caption = None
+        update.effective_message.reply_to_message = quoted
+        await ingress.on_message(update, ctx)
+    assert g.ainvoke.call_args.args[0]["user_text"] == "che ne pensi?"
