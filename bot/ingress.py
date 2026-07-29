@@ -89,6 +89,21 @@ def _is_addressed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return False
 
 
+def _quoted_context(message, bot_id: int) -> str | None:
+    """Text of the message this one replies to, when that message is someone
+    else's. Telegram sends a reply's quoted content only in reply_to_message,
+    so without this a "what do you think?" aimed at a shared link arrives as
+    the bare question. The bot's own turns are skipped: they are already in the
+    history the agent node loads, and re-injecting them would duplicate context."""
+    reply_to = message.reply_to_message
+    if not reply_to:
+        return None
+    if reply_to.from_user and reply_to.from_user.id == bot_id:
+        return None
+    quoted = reply_to.text or reply_to.caption or ""
+    return quoted.strip() or None
+
+
 def send_guard(text: str) -> bool:
     """True if text is safe to send to the user as-is."""
     if not text or not text.strip():
@@ -186,6 +201,14 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     # thread in a group.
     thread_id = str(user_id) if is_private else f"{chat.id}:{user_id}"
     user_text = message.text or message.caption or ""
+
+    quoted = _quoted_context(message, context.bot.id)
+    if quoted:
+        author = getattr(getattr(message.reply_to_message, "from_user", None), "first_name", None)
+        speaker = author or "someone"
+        user_text = (
+            f"[Replying to a message from {speaker}:\n{quoted}\n]\n\n{user_text}".strip()
+        )
 
     image_bytes = None
     if message.photo:

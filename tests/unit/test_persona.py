@@ -55,3 +55,18 @@ def test_agent_briefing_wraps_persona_file(tmp_path, monkeypatch):
     briefing = build_agent_briefing()
     assert "Erminio" in briefing
     assert "image_search" in briefing  # agent gets tool guidance, not just identity
+
+
+# --- URL reading -----------------------------------------------------------
+#
+# Bug: the briefing named only web_search, recall and image_search, so when a
+# user shared a link and asked "what do you think?" the agent had no
+# instruction to fetch it. Hermes' web toolset provides web_extract (tavily
+# backend, live-verified on hermespi) — the briefing has to point at it.
+
+def test_agent_briefing_instructs_reading_shared_links(tmp_path, monkeypatch):
+    f = tmp_path / "erminio.md"
+    f.write_text("Ti chiami Erminio.", encoding="utf-8")
+    monkeypatch.setattr(settings, "persona_file", str(f))
+    briefing = build_agent_briefing()
+    assert "web_extract" in briefing
