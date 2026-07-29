@@ -175,6 +175,21 @@ When `GROUP_ALLOWED_CHATS` is set (comma-separated chat IDs), the bot only
 answers in those groups and stays silent everywhere else; empty means any
 group.
 
+### Quoted messages
+
+Telegram carries a reply's quoted content only in `reply_to_message`, never in
+the new message's own text. So when someone replies to another message and asks
+something as vague as "what do you think?", `bot/ingress.py` prefixes the
+quoted text into `user_text` as a `[Replying to a message from <name>: ...]`
+block — otherwise the subject (often a shared link) never reaches the agent and
+the bot answers that it received nothing. Replies to the bot's *own* messages
+are not quoted in, since those turns are already in the history the agent node
+loads.
+
+When the message contains a URL — including one arriving via that quoted block
+— the agent briefing instructs the agent to fetch it with Hermes' `web_extract`
+tool before answering.
+
 Memory and persona are keyed by the **speaker's** Telegram user id, not the
 chat — so the bot knows each person consistently across their DMs and any
 group they share. In a DM the chat id equals the user id, so DM behavior is
@@ -269,7 +284,10 @@ TESTCONTAINERS_RYUK_DISABLED=true .venv/bin/pytest -q
   the agent to the four tools via `tools.include` (`web_search`, `recall`,
   `image_search`, `vision_analyze`), and disables Hermes's mutating built-in
   toolsets (file, patch, execute_code, browser, cronjob, delegate_task, todo,
-  skills). The `mcp-tools` server exposes the modern **streamable-HTTP**
+  skills). Note `tools.include` scopes only the `persona_tools` MCP server —
+  Hermes's own read-only `web` toolset (`web_search`, `web_extract`) stays
+  enabled, backed by the `TAVILY_API_KEY` it already has, and `web_extract` is
+  what the agent uses to read links people share. The `mcp-tools` server exposes the modern **streamable-HTTP**
   transport (`FastMCP.streamable_http_app()`), which is what Hermes's
   `type: http` MCP client speaks.
 - **deploy/hermes/SOUL.md**: the persona/silence instruction (Hermes has no
