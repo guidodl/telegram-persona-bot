@@ -61,6 +61,16 @@ def _group_allowed(chat_id: int) -> bool:
     return not allowed or str(chat_id) in allowed
 
 
+def _topic_allowed(chat_id: int, message_thread_id: int | None) -> bool:
+    """Forum-topic gate. GROUP_ALLOWED_TOPICS holds chat_id:thread_id pairs; a
+    chat with no pair listed is unrestricted, so this is a no-op for non-forum
+    groups. Telegram omits message_thread_id in a forum's General topic, so a
+    restricted chat also silences General."""
+    pairs = [t.strip().split(":", 1) for t in settings.group_allowed_topics.split(",") if ":" in t]
+    for_chat = [thread.strip() for cid, thread in pairs if cid.strip() == str(chat_id)]
+    return not for_chat or str(message_thread_id) in for_chat
+
+
 def _user_allowed(user_id: int) -> bool:
     allowed = [u.strip() for u in settings.allowed_users.split(",") if u.strip()]
     return not allowed or str(user_id) in allowed
@@ -188,7 +198,17 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if not _user_allowed(update.effective_user.id):
             return
     else:
+        # Topic ids are only discoverable from live traffic: the Bot API has no
+        # method to list a forum's topics, so this line is how you find the
+        # value to put in GROUP_ALLOWED_TOPICS.
+        logger.info(
+            "group message chat_id=%s message_thread_id=%s",
+            chat.id,
+            update.effective_message.message_thread_id,
+        )
         if not _group_allowed(chat.id):
+            return
+        if not _topic_allowed(chat.id, update.effective_message.message_thread_id):
             return
         if not _is_addressed(update, context):
             return
@@ -237,6 +257,13 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.warning("send_guard rejected reply text for chat_id=%s", chat.id)
         text = SEND_GUARD_FALLBACK
 
+    # send_audio/send_photo take a bare chat_id, so in a forum group they need
+    # the thread id explicitly or the media lands in General instead of the
+    # topic the question was asked in. reply_text carries it over on its own.
+    thread_kwargs = (
+        {"message_thread_id": message.message_thread_id} if message.message_thread_id else {}
+    )
+
     # A voice reply is sent as audio only — no text transcript alongside it.
     # Text is still sent if voice wasn't requested, or as a fallback when
     # synthesis fails so the user is never left with nothing.
@@ -244,7 +271,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if reply.get("voice"):
         try:
             voice_bytes = await tts.synth(text)
-            await context.bot.send_audio(chat_id=chat.id, audio=media.to_audio(voice_bytes))
+            await context.bot.send_audio(
+                chat_id=chat.id, audio=media.to_audio(voice_bytes), **thread_kwargs
+            )
             sent_voice = True
         except Exception:
             logger.exception("voice send failed for chat_id=%s", chat.id)
@@ -260,7 +289,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if image_url:
         try:
             image_bytes = await media.fetch_image(image_url)
-            await context.bot.send_photo(chat_id=chat.id, photo=media.to_photo(image_bytes))
+            await context.bot.send_photo(
+                chat_id=chat.id, photo=media.to_photo(image_bytes), **thread_kwargs
+            )
         except Exception:
             logger.exception("photo send failed for chat_id=%s", chat.id)
 
@@ -277,6 +308,7 @@ def _fake_text_update(text: str, chat_id: int = 1):
     update.effective_message.text = text
     update.effective_message.caption = None
     update.effective_message.photo = []
+    update.effective_message.message_thread_id = None
     update.effective_message.reply_to_message = None
     update.effective_message.reply_text = AsyncMock()
     update.message = update.effective_message

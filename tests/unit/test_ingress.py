@@ -192,6 +192,72 @@ async def test_group_in_allowlist_answered():
     g.ainvoke.assert_awaited_once()
 
 
+async def test_group_wrong_topic_ignored_even_when_addressed():
+    with patch("bot.ingress.settings.group_allowed_topics", "-100:42"), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock()
+        update, ctx = ingress._fake_text_update("hey @personabot", chat_id=-100)
+        update.effective_chat.type = ChatType.GROUP
+        update.effective_message.message_thread_id = 7
+        await ingress.on_message(update, ctx)
+    g.ainvoke.assert_not_awaited()
+
+
+async def test_group_general_topic_ignored_when_topics_restricted():
+    with patch("bot.ingress.settings.group_allowed_topics", "-100:42"), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock()
+        update, ctx = ingress._fake_text_update("hey @personabot", chat_id=-100)
+        update.effective_chat.type = ChatType.GROUP
+        update.effective_message.message_thread_id = None
+        await ingress.on_message(update, ctx)
+    g.ainvoke.assert_not_awaited()
+
+
+async def test_group_allowed_topic_answered():
+    with patch("bot.ingress.settings.group_allowed_topics", "-100:42"), \
+         patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hey @personabot", chat_id=-100)
+        update.effective_chat.type = ChatType.GROUP
+        update.effective_message.message_thread_id = 42
+        await ingress.on_message(update, ctx)
+    g.ainvoke.assert_awaited_once()
+
+
+async def test_other_chat_unaffected_by_another_chats_topic_rule():
+    with patch("bot.ingress.settings.group_allowed_topics", "-999:42"), \
+         patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False, "image_url": None}})
+        update, ctx = ingress._fake_text_update("hey @personabot", chat_id=-100)
+        update.effective_chat.type = ChatType.GROUP
+        update.effective_message.message_thread_id = 7
+        await ingress.on_message(update, ctx)
+    g.ainvoke.assert_awaited_once()
+
+
+async def test_photo_sent_into_the_originating_topic():
+    with patch("bot.ingress.persist_memory", new=AsyncMock()), \
+         patch("bot.ingress.memory.recent_turns", new=AsyncMock(return_value=[])), \
+         patch("bot.ingress.memory.log_turn", new=AsyncMock()), \
+         patch("bot.ingress.media.fetch_image", new=AsyncMock(return_value=b"img")), \
+         patch("bot.ingress.media.to_photo", return_value=b"img"), \
+         patch("bot.ingress._graph") as g:
+        g.ainvoke = AsyncMock(return_value={"reply": {"text": "hi", "voice": False,
+                                                      "image_url": "http://x/i.png"}})
+        update, ctx = ingress._fake_text_update("hey @personabot", chat_id=-100)
+        update.effective_chat.type = ChatType.GROUP
+        update.effective_message.message_thread_id = 42
+        await ingress.on_message(update, ctx)
+    assert ctx.bot.send_photo.await_args.kwargs["message_thread_id"] == 42
+
+
 async def test_raw_tool_leak_replaced_with_fallback():
     with patch("bot.ingress.persist_memory", new=AsyncMock()), \
          patch("bot.ingress._graph") as g:

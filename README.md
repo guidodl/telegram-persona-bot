@@ -98,6 +98,7 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 | `BOT_NAME` | `""` | Plain name the bot answers to in groups (no `@` needed) |
 | `BOT_ALIASES` | `""` | Comma-separated extra names the bot answers to in groups |
 | `GROUP_ALLOWED_CHATS` | `""` | Comma-separated group chat IDs the bot may answer in; empty = any group |
+| `GROUP_ALLOWED_TOPICS` | `""` | Comma-separated `chat_id:message_thread_id` pairs restricting which forum topics the bot may answer in; a chat with no pair listed is unrestricted |
 | `ALLOWED_USERS` | `""` | Comma-separated Telegram user IDs allowed to DM the bot; empty = everyone |
 | `PERSONA_FILE` | `""` | Path to a persona definition file (e.g. `bot/personas/erminio.md`); empty = generic companion persona |
 | `OPENROUTER_API_KEY` | `""` | Chat/vision/embedding calls via OpenRouter |
@@ -174,6 +175,36 @@ In a group the bot stays silent unless it is **addressed**:
 When `GROUP_ALLOWED_CHATS` is set (comma-separated chat IDs), the bot only
 answers in those groups and stays silent everywhere else; empty means any
 group.
+
+### Forum topics
+
+In a group with Topics enabled, `GROUP_ALLOWED_TOPICS` narrows the bot to
+specific topics using `chat_id:message_thread_id` pairs — e.g.
+`GROUP_ALLOWED_TOPICS=-1004396700492:42` confines it to thread 42 of that
+group. A chat with no pair listed is unrestricted, so this changes nothing for
+non-forum groups, and it composes with `GROUP_ALLOWED_CHATS`: leave that empty
+to let the bot into any group while still pinning topics for the forums you
+care about. Telegram omits `message_thread_id` for messages in a forum's
+**General** topic, so restricting a chat also silences the bot in General.
+
+Topics are matched by **id, not name**: the Bot API exposes no method to list a
+forum's topics or resolve a thread id to its title (the only getter is
+`getForumTopicIconStickers`), and a topic's name reaches the bot solely in the
+one-off `forum_topic_created` service message. To find a topic's id, either open
+it in Telegram Web and read the `.../<chat>/<thread_id>/<message_id>` URL, or
+send a message in the topic and read it off the log line every group message
+emits:
+
+```
+INFO:bot.ingress:group message chat_id=-1004396700492 message_thread_id=42
+```
+
+That line is logged before any gating check, so it appears even for messages the
+bot ignores — which is what makes it usable for discovering a new topic's id.
+
+Voice and photo replies are sent with `message_thread_id` explicitly, since
+`send_audio`/`send_photo` take a bare `chat_id` and would otherwise land in
+General rather than the topic the question was asked in.
 
 ### Quoted messages
 

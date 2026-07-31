@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     bot_name: str = ""  # name the bot answers to in groups when addressed without an @mention
     bot_aliases: str = ""  # comma-separated extra names the bot answers to in groups
     group_allowed_chats: str = ""  # comma-separated group chat IDs; empty = respond in any group
+    group_allowed_topics: str = ""  # comma-separated chat_id:message_thread_id pairs; a chat with no entry is unrestricted
     allowed_users: str = ""  # comma-separated Telegram user IDs allowed to DM the bot; empty = everyone
     persona_file: str = ""  # path to a persona definition file; empty = generic companion persona
     openrouter_api_key: str = ""
