@@ -110,8 +110,8 @@ Defined in `bot/config.py` (`Settings`, loaded from `.env` via
 | `MODEL_AGENT` | `""` | Tool-loop model deciding whether to call tools (e.g. `image_search`); empty falls back to `MODEL_CHAT` |
 | `MODEL_VISION` | `google/gemini-2.5-flash` | `vision_analyze` model |
 | `MODEL_EMBED` | `openai/text-embedding-3-small` | Embedding model (OpenRouter backend) |
-| `TTS_MODEL` | `x-ai/grok-voice-tts-1.0` | OpenRouter speech model for voice replies (list via `GET /models?output_modalities=speech`) |
-| `TTS_VOICE` | `leo` | Voice ID; must be in the model's `supported_voices`. Voices are provider-namespaced |
+| `TTS_MODEL` | `fish-audio/s2.1-pro-free` | OpenRouter speech model for voice replies (list via `GET /models?output_modalities=speech`) |
+| `TTS_VOICE` | `""` | Voice ID; must be in the model's `supported_voices`. Voices are provider-namespaced. Empty = provider default (`voice` omitted from the request) |
 | `EMBED_DIM` | `1536` | Vector dimension (must match the `memories.embedding` column) |
 | `EMBED_BACKEND` | `openrouter` | `openrouter` or `openai` — which provider serves embeddings |
 | `PACING_ENABLED` | `true` | Adds a human-like delay between multi-chunk reply sends |

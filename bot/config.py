@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     model_agent: str = ""  # model for the tool-loop decisions (e.g. whether to send a pic); empty = same as model_chat
     model_vision: str = "google/gemini-2.5-flash"
     model_embed: str = "openai/text-embedding-3-small"
-    tts_model: str = "x-ai/grok-voice-tts-1.0"  # OpenRouter speech model; see ?output_modalities=speech
-    tts_voice: str = "leo"  # must be a supported_voices entry for tts_model
+    tts_model: str = "fish-audio/s2.1-pro-free"  # OpenRouter speech model; see ?output_modalities=speech
+    tts_voice: str = ""  # must be a supported_voices entry for tts_model; empty = provider default
     embed_dim: int = 1536
     embed_backend: str = "openrouter"  # or "openai"
     pacing_enabled: bool = True
